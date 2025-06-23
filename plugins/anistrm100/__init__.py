@@ -144,21 +144,26 @@ class ANiStrm100(_PluginBase):
                     logger.warn(f"获取 {season} 季度番剧失败: {e}")
         return all_files
 
-    def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
-        season_path = season if season else self._date
-        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-        file_path = f'{self._storageplace}/{file_name}.strm'
-        if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
-            return False
-        try:
-            with open(file_path, 'w') as file:
-                file.write(src_url)
-                logger.debug(f'创建 {file_name}.strm 文件成功')
-                return True
-        except Exception as e:
-            logger.error('创建strm源文件失败：' + str(e))
-            return False
+def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
+    season_path = season if season else self._date
+    src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
+
+    # ✅ 自动创建季度子目录
+    dir_path = os.path.join(self._storageplace, season_path)
+    os.makedirs(dir_path, exist_ok=True)
+
+    file_path = os.path.join(dir_path, f'{file_name}.strm')
+    if os.path.exists(file_path):
+        logger.debug(f'{file_name}.strm 文件已存在')
+        return False
+    try:
+        with open(file_path, 'w') as file:
+            file.write(src_url)
+            logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
+            return True
+    except Exception as e:
+        logger.error('创建strm源文件失败：' + str(e))
+        return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
