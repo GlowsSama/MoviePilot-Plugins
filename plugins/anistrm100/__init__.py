@@ -44,7 +44,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.4.8"
+    plugin_version = "2.4.9"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -148,20 +148,30 @@ class ANiStrm100(_PluginBase):
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
-        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
+        
+        # 从文件名中提取番剧名称作为目录名
+        # 文件名格式示例: "碰之道 》 [ANI] 碰之道-12 [1080P][Baha][WEB-DL][AAC AVC][CHT].mp4"
+        # 提取番剧名称: "碰之道"
+        show_name = file_name.split(' 》 ')[0].strip()
+        
+        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{show_name}/{file_name}?d=true'
 
         # ✅ 自动创建季度子目录和番剧名称子目录
-        show_dir = os.path.join(self._storageplace, season_path, file_name)
+        # 目录结构: {storageplace}/{season_path}/{show_name}/
+        show_dir = os.path.join(self._storageplace, season_path, show_name)
         os.makedirs(show_dir, exist_ok=True)
 
-        file_path = os.path.join(show_dir, f'{file_name}.strm')
+        # 创建.strm文件，文件名与原始视频文件名相同（但扩展名改为.strm）
+        strm_filename = os.path.splitext(file_name)[0] + '.strm'
+        file_path = os.path.join(show_dir, strm_filename)
+        
         if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
+            logger.debug(f'{strm_filename} 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {season_path}/{file_name}/{file_name}.strm 文件成功')
+                logger.debug(f'创建 {season_path}/{show_name}/{strm_filename} 文件成功')
                 return True
         except Exception as e:
             logger.error('创建strm源文件失败：' + str(e))
