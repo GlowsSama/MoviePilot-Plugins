@@ -42,7 +42,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.4.6"
+    plugin_version = "2.4.5"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -144,20 +144,12 @@ class ANiStrm100(_PluginBase):
                     logger.warn(f"获取 {season} 季度番剧失败: {e}")
         return all_files
 
-
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
 
-        # ✅ 提取番剧名：例如 ［ANi］碰之道 - 12 → 碰之道
-        name_match = re.search(r"］(.*?)\s*-\s*\d+", file_name)
-        if name_match:
-            show_name = name_match.group(1).strip()
-        else:
-            show_name = file_name.split('-')[0].strip()  # 兜底
-
-        # ✅ 生成路径 /downloads/strm/2024-1/碰之道/
-        dir_path = os.path.join(self._storageplace, season_path, show_name)
+    # ✅ 自动创建季度子目录
+        dir_path = os.path.join(self._storageplace, season_path)
         os.makedirs(dir_path, exist_ok=True)
 
         file_path = os.path.join(dir_path, f'{file_name}.strm')
@@ -167,12 +159,11 @@ class ANiStrm100(_PluginBase):
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {season_path}/{show_name}/{file_name}.strm 文件成功')
+                logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
                 return True
         except Exception as e:
             logger.error('创建strm源文件失败：' + str(e))
             return False
-    
 
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
