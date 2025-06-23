@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -99,7 +100,7 @@ class ANiStrm100(_PluginBase):
         for month in range(current_month, 0, -1):
             if month in [10, 7, 4, 1]:
                 self._date = f'{current_year}-{month}'
-                return f'{current_year}-{month}'
+                return self._date
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
@@ -147,14 +148,24 @@ class ANiStrm100(_PluginBase):
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-        file_path = f'{self._storageplace}/{file_name}.strm'
+
+        name_match = re.search(r"］(.*?)\s*-\s*\d+", file_name)
+        if name_match:
+            show_name = name_match.group(1).strip()
+        else:
+            show_name = file_name.split('-')[0].strip()
+
+        dir_path = os.path.join(self._storageplace, season_path, show_name)
+        os.makedirs(dir_path, exist_ok=True)
+
+        file_path = os.path.join(dir_path, f'{file_name}.strm')
         if os.path.exists(file_path):
             logger.debug(f'{file_name}.strm 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {file_name}.strm 文件成功')
+                logger.debug(f'创建 {season_path}/{show_name}/{file_name}.strm 文件成功')
                 return True
         except Exception as e:
             logger.error('创建strm源文件失败：' + str(e))
@@ -192,36 +203,7 @@ class ANiStrm100(_PluginBase):
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'cron', 'label': '执行周期', 'placeholder': '0 0 ? ? ?'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'storageplace', 'label': 'Strm存储地址', 'placeholder': '/downloads/strm'}}]}
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "onlyonce": False,
-            "fulladd": False,
-            "allseason": False,
-            "storageplace": "/downloads/strm",
-            "cron": "*/20 22,23,0,1 * * *",
-        }
+        return [...]
 
     def __update_config(self):
         self.update_config({
