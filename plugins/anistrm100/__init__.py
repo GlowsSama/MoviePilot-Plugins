@@ -130,7 +130,7 @@ class ANiStrm100(_PluginBase):
         all_files = []
         for year in range(start_year, now.year + 1):
             for month in [1, 4, 7, 10]:
-                season = f"{year}-{month:02d}"
+                season = f"{year}-{month}"
                 logger.info(f"正在获取季度：{season}")
                 try:
                     url = f'https://openani.an-i.workers.dev/{season}/'
