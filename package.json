@@ -8,7 +8,7 @@
     "author": "honue",
     "level": 2
   },
-  "ANiStrmv2": {
+  "ANiStrm100": {
     "name": "ANiStrmv2",
     "description": "自动获取当季所有番剧，生成strm文件，mp刮削入库，emby直接播放，免去下载，轻松拥有一个番剧媒体库",
     "version": "2.4.3",
