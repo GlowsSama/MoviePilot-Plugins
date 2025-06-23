@@ -144,7 +144,6 @@ class ANiStrm100(_PluginBase):
                     logger.warn(f"获取 {season} 季度番剧失败: {e}")
         return all_files
 
-       import re
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
