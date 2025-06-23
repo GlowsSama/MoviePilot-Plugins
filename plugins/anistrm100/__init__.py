@@ -1,6 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -44,7 +45,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.4.9"
+    plugin_version = "2.5.0"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -147,34 +148,75 @@ class ANiStrm100(_PluginBase):
         return all_files
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
-        season_path = season if season else self._date
+        # 处理不同的URL情况
+        if file_url:
+            # 对于RSS模式，使用提供的完整URL
+            parsed_url = urlparse(file_url)
+            # 获取路径部分（去除域名）
+            path = parsed_url.path
+            # 去除开头的斜杠
+            if path.startswith('/'):
+                path = path[1:]
+            
+            # 分割路径为目录和文件名
+            path_parts = path.split('/')
+            
+            # 最后一个部分是文件名
+            file_name_from_url = path_parts[-1]
+            
+            # 目录部分（如果有二级目录）
+            dir_parts = path_parts[:-1]
+            
+            # 完整目录路径
+            full_dir_path = os.path.join(self._storageplace, *dir_parts)
+            
+            # 源URL（添加d=true参数）
+            src_url = f"{parsed_url.scheme}://{parsed_url.netloc}/{path}?d=true"
+            
+            # 文件名使用URL中的文件名
+            target_file_name = file_name_from_url
+        else:
+            # 对于非RSS模式（fulladd和allseason）
+            season_path = season if season else self._date
+            
+            # 尝试从文件名中提取番剧名称作为可能的二级目录
+            if ' 》 ' in file_name:
+                # 如果有 》 分隔符，提取番剧名称
+                show_name = file_name.split(' 》 ')[0].strip()
+                # 源URL：假设有二级目录
+                src_url = f'https://openani.an-i.workers.dev/{season_path}/{show_name}/{file_name}?d=true'
+                # 完整目录路径
+                full_dir_path = os.path.join(self._storageplace, season_path, show_name)
+            else:
+                # 如果没有 》 分隔符，直接放在季度目录下
+                src_url = f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
+                full_dir_path = os.path.join(self._storageplace, season_path)
+            
+            # 文件名使用原始文件名
+            target_file_name = file_name
         
-        # 从文件名中提取番剧名称作为目录名
-        # 文件名格式示例: "碰之道 》 [ANI] 碰之道-12 [1080P][Baha][WEB-DL][AAC AVC][CHT].mp4"
-        # 提取番剧名称: "碰之道"
-        show_name = file_name.split(' 》 ')[0].strip()
+        # 确保文件名以.strm结尾
+        if not target_file_name.endswith('.strm'):
+            # 替换原始扩展名为.strm
+            base_name, _ = os.path.splitext(target_file_name)
+            target_file_name = f"{base_name}.strm"
         
-        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{show_name}/{file_name}?d=true'
-
-        # ✅ 自动创建季度子目录和番剧名称子目录
-        # 目录结构: {storageplace}/{season_path}/{show_name}/
-        show_dir = os.path.join(self._storageplace, season_path, show_name)
-        os.makedirs(show_dir, exist_ok=True)
-
-        # 创建.strm文件，文件名与原始视频文件名相同（但扩展名改为.strm）
-        strm_filename = os.path.splitext(file_name)[0] + '.strm'
-        file_path = os.path.join(show_dir, strm_filename)
+        # ✅ 自动创建必要的目录
+        os.makedirs(full_dir_path, exist_ok=True)
+        
+        # 完整的文件路径
+        file_path = os.path.join(full_dir_path, target_file_name)
         
         if os.path.exists(file_path):
-            logger.debug(f'{strm_filename} 文件已存在')
+            logger.debug(f'{target_file_name} 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {season_path}/{show_name}/{strm_filename} 文件成功')
+                logger.debug(f'创建 {file_path} 文件成功')
                 return True
         except Exception as e:
-            logger.error('创建strm源文件失败：' + str(e))
+            logger.error(f'创建strm源文件失败：{str(e)}')
             return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
