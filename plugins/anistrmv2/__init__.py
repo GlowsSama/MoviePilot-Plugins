@@ -38,14 +38,14 @@ def retry(ExceptionToCheck: Any,
         return f_retry
     return deco_retry
 
-class ANiStrmv2(_PluginBase):
-    plugin_name = "ANiStrmv2"
+class ANiStrm100(_PluginBase):
+    plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
     plugin_version = "2.4.3"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
-    plugin_config_prefix = "anistrmv2_"
+    plugin_config_prefix = "anistrm100_"
     plugin_order = 15
     auth_level = 2
 
@@ -73,7 +73,7 @@ class ANiStrmv2(_PluginBase):
                 try:
                     self._scheduler.add_job(func=self.__task,
                                             trigger=CronTrigger.from_crontab(self._cron),
-                                            name="ANiStrmv2文件创建")
+                                            name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
                 except Exception as err:
                     logger.error(f"定时任务配置错误：{str(err)}")
@@ -83,7 +83,7 @@ class ANiStrmv2(_PluginBase):
                                         args=[self._fulladd, self._allseason],
                                         trigger='date',
                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="ANiStrmv2文件创建")
+                                        name="ANiStrm100文件创建")
                 self._onlyonce = False
                 self._fulladd = False
                 self._allseason = False
@@ -247,6 +247,6 @@ class ANiStrmv2(_PluginBase):
             logger.error("退出插件失败：%s" % str(e))
 
 if __name__ == "__main__":
-    anistrmv2 = ANiStrmv2()
-    name_list = anistrmv2.get_all_season_list()
+    anistrm100 = ANiStrm100()
+    name_list = anistrm100.get_all_season_list()
     print(name_list)
