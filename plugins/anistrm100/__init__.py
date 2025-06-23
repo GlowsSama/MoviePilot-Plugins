@@ -1,7 +1,6 @@
 import os
 import time
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -14,7 +13,6 @@ from typing import Any, List, Dict, Tuple, Optional
 from app.log import logger
 import xml.dom.minidom
 from app.utils.dom import DomUtils
-
 
 def retry(ExceptionToCheck: Any,
           tries: int = 3, delay: int = 3, backoff: int = 1, logger: Any = None, ret: Any = None):
@@ -36,16 +34,14 @@ def retry(ExceptionToCheck: Any,
             if logger:
                 logger.warn('请确保当前季度番剧文件夹存在或检查网络问题')
             return ret
-
         return f_retry
     return deco_retry
-
 
 class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.5.0"
+    plugin_version = "2.5.1"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -104,6 +100,9 @@ class ANiStrm100(_PluginBase):
                 self._date = f'{current_year}-{month}'
                 return f'{current_year}-{month}'
 
+    def __is_valid_file(self, name: str) -> bool:
+        return 'Ani' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
+
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
         url = f'https://openani.an-i.workers.dev/{self.__get_ani_season()}/'
@@ -148,75 +147,23 @@ class ANiStrm100(_PluginBase):
         return all_files
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
-        # 处理不同的URL情况
-        if file_url:
-            # 对于RSS模式，使用提供的完整URL
-            parsed_url = urlparse(file_url)
-            # 获取路径部分（去除域名）
-            path = parsed_url.path
-            # 去除开头的斜杠
-            if path.startswith('/'):
-                path = path[1:]
-            
-            # 分割路径为目录和文件名
-            path_parts = path.split('/')
-            
-            # 最后一个部分是文件名
-            file_name_from_url = path_parts[-1]
-            
-            # 目录部分（如果有二级目录）
-            dir_parts = path_parts[:-1]
-            
-            # 完整目录路径
-            full_dir_path = os.path.join(self._storageplace, *dir_parts)
-            
-            # 源URL（添加d=true参数）
-            src_url = f"{parsed_url.scheme}://{parsed_url.netloc}/{path}?d=true"
-            
-            # 文件名使用URL中的文件名
-            target_file_name = file_name_from_url
-        else:
-            # 对于非RSS模式（fulladd和allseason）
-            season_path = season if season else self._date
-            
-            # 尝试从文件名中提取番剧名称作为可能的二级目录
-            if ' 》 ' in file_name:
-                # 如果有 》 分隔符，提取番剧名称
-                show_name = file_name.split(' 》 ')[0].strip()
-                # 源URL：假设有二级目录
-                src_url = f'https://openani.an-i.workers.dev/{season_path}/{show_name}/{file_name}?d=true'
-                # 完整目录路径
-                full_dir_path = os.path.join(self._storageplace, season_path, show_name)
-            else:
-                # 如果没有 》 分隔符，直接放在季度目录下
-                src_url = f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-                full_dir_path = os.path.join(self._storageplace, season_path)
-            
-            # 文件名使用原始文件名
-            target_file_name = file_name
-        
-        # 确保文件名以.strm结尾
-        if not target_file_name.endswith('.strm'):
-            # 替换原始扩展名为.strm
-            base_name, _ = os.path.splitext(target_file_name)
-            target_file_name = f"{base_name}.strm"
-        
-        # ✅ 自动创建必要的目录
-        os.makedirs(full_dir_path, exist_ok=True)
-        
-        # 完整的文件路径
-        file_path = os.path.join(full_dir_path, target_file_name)
-        
+        season_path = season if season else self._date
+        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
+
+        dir_path = os.path.join(self._storageplace, season_path)
+        os.makedirs(dir_path, exist_ok=True)
+
+        file_path = os.path.join(dir_path, f'{file_name}.strm')
         if os.path.exists(file_path):
-            logger.debug(f'{target_file_name} 文件已存在')
+            logger.debug(f'{file_name}.strm 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {file_path} 文件成功')
+                logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
                 return True
         except Exception as e:
-            logger.error(f'创建strm源文件失败：{str(e)}')
+            logger.error('创建strm源文件失败：' + str(e))
             return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
@@ -225,18 +172,24 @@ class ANiStrm100(_PluginBase):
             name_list = self.get_all_season_list()
             logger.info(f'处理历史季度，共 {len(name_list)} 个文件')
             for season, file_name in name_list:
+                if not self.__is_valid_file(file_name):
+                    continue
                 if self.__touch_strm_file(file_name=file_name, season=season):
                     cnt += 1
         elif fulladd:
             name_list = self.get_current_season_list()
             logger.info(f'本次处理 {len(name_list)} 个文件')
             for file_name in name_list:
+                if not self.__is_valid_file(file_name):
+                    continue
                 if self.__touch_strm_file(file_name=file_name):
                     cnt += 1
         else:
             rss_info_list = self.get_latest_list()
             logger.info(f'本次处理 {len(rss_info_list)} 个文件')
             for rss_info in rss_info_list:
+                if not self.__is_valid_file(rss_info['title']):
+                    continue
                 if self.__touch_strm_file(file_name=rss_info['title'], file_url=rss_info['link']):
                     cnt += 1
         logger.info(f'新创建了 {cnt} 个strm文件')
@@ -304,7 +257,6 @@ class ANiStrm100(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
-
 
 if __name__ == "__main__":
     anistrm100 = ANiStrm100()
