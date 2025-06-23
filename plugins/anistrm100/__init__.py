@@ -14,7 +14,6 @@ from app.log import logger
 import xml.dom.minidom
 from app.utils.dom import DomUtils
 
-
 def retry(ExceptionToCheck: Any,
           tries: int = 3, delay: int = 3, backoff: int = 1, logger: Any = None, ret: Any = None):
     def deco_retry(f):
@@ -38,7 +37,6 @@ def retry(ExceptionToCheck: Any,
 
         return f_retry
     return deco_retry
-
 
 class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
@@ -149,19 +147,14 @@ class ANiStrm100(_PluginBase):
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-
-        # ✅ 自动创建季度子目录
-        dir_path = os.path.join(self._storageplace, season_path)
-        os.makedirs(dir_path, exist_ok=True)
-
-        file_path = os.path.join(dir_path, f'{file_name}.strm')
+        file_path = f'{self._storageplace}/{file_name}.strm'
         if os.path.exists(file_path):
             logger.debug(f'{file_name}.strm 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
-                logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
+                logger.debug(f'创建 {file_name}.strm 文件成功')
                 return True
         except Exception as e:
             logger.error('创建strm源文件失败：' + str(e))
@@ -252,7 +245,6 @@ class ANiStrm100(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error("退出插件失败：%s" % str(e))
-
 
 if __name__ == "__main__":
     anistrm100 = ANiStrm100()
