@@ -34,7 +34,6 @@ def retry(ExceptionToCheck: Any,
             if logger:
                 logger.warn('请确保当前季度番剧文件夹存在或检查网络问题')
             return ret
-
         return f_retry
     return deco_retry
 
@@ -42,7 +41,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.4.5"
+    plugin_version = "2.4.6"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -101,6 +100,9 @@ class ANiStrm100(_PluginBase):
                 self._date = f'{current_year}-{month}'
                 return f'{current_year}-{month}'
 
+    def __is_valid_file(self, name: str) -> bool:
+        return 'ANi' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
+
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
         url = f'https://openani.an-i.workers.dev/{self.__get_ani_season()}/'
@@ -148,7 +150,6 @@ class ANiStrm100(_PluginBase):
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
 
-    # ✅ 自动创建季度子目录
         dir_path = os.path.join(self._storageplace, season_path)
         os.makedirs(dir_path, exist_ok=True)
 
@@ -165,25 +166,30 @@ class ANiStrm100(_PluginBase):
             logger.error('创建strm源文件失败：' + str(e))
             return False
 
-
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
         if allseason:
             name_list = self.get_all_season_list()
             logger.info(f'处理历史季度，共 {len(name_list)} 个文件')
             for season, file_name in name_list:
+                if not self.__is_valid_file(file_name):
+                    continue
                 if self.__touch_strm_file(file_name=file_name, season=season):
                     cnt += 1
         elif fulladd:
             name_list = self.get_current_season_list()
             logger.info(f'本次处理 {len(name_list)} 个文件')
             for file_name in name_list:
+                if not self.__is_valid_file(file_name):
+                    continue
                 if self.__touch_strm_file(file_name=file_name):
                     cnt += 1
         else:
             rss_info_list = self.get_latest_list()
             logger.info(f'本次处理 {len(rss_info_list)} 个文件')
             for rss_info in rss_info_list:
+                if not self.__is_valid_file(rss_info['title']):
+                    continue
                 if self.__touch_strm_file(file_name=rss_info['title'], file_url=rss_info['link']):
                     cnt += 1
         logger.info(f'新创建了 {cnt} 个strm文件')
