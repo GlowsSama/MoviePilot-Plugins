@@ -41,7 +41,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.5.2"
+    plugin_version = "2.5.3"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -127,44 +127,63 @@ class ANiStrm100(_PluginBase):
             })
         return result
 
-    def get_all_season_list(self, start_year: int = 2018) -> List[Tuple[str, str]]:
-        now = datetime.now()
-        all_files = []
-        for year in range(start_year, now.year + 1):
-            for month in [1, 4, 7, 10]:
-                season = f"{year}-{month}"
-                logger.info(f"正在获取季度：{season}")
-                try:
-                    url = f'https://openani.an-i.workers.dev/{season}/'
-                    rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
-                    files_json = rep.json().get('files', [])
-                    for file in files_json:
-                        name = file.get('name')
-                        if name:
-                            all_files.append((season, name))
-                except Exception as e:
-                    logger.warn(f"获取 {season} 季度番剧失败: {e}")
-        return all_files
+def get_all_season_list(self, start_year: int = 2018) -> List[Tuple[str, str]]:
+    now = datetime.now()
+    all_files = []
 
-    def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
-        season_path = season if season else self._date
-        src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-
-        dir_path = os.path.join(self._storageplace, season_path)
-        os.makedirs(dir_path, exist_ok=True)
-
-        file_path = os.path.join(dir_path, f'{file_name}.strm')
-        if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
-            return False
+    def fetch_season_folder(season: str, subfolder: str = ""):
+        url = f'https://openani.an-i.workers.dev/{season}/{subfolder}'.rstrip('/')
         try:
-            with open(file_path, 'w') as file:
-                file.write(src_url)
-                logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
-                return True
+            rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get(url=url)
+            files_json = rep.json().get('files', [])
         except Exception as e:
-            logger.error('创建strm源文件失败：' + str(e))
-            return False
+            logger.warn(f"获取 {season}/{subfolder} 内容失败: {e}")
+            return
+
+        for file in files_json:
+            name = file.get("name")
+            if not name:
+                continue
+            full_path = os.path.join(subfolder, name).replace("\\", "/")
+            if 'ani' in name.lower():
+                all_files.append((season, full_path))
+            elif not os.path.splitext(name)[1]:  # 没有扩展名，可能是子目录
+                fetch_season_folder(season, full_path)
+
+    for year in range(start_year, now.year + 1):
+        for month in [1, 4, 7, 10]:
+            season = f"{year}-{month}"
+            logger.info(f"正在获取季度：{season}")
+            fetch_season_folder(season)
+
+    return all_files
+
+
+def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
+    season_path = season if season else self._date
+    src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
+
+    sub_dir = os.path.dirname(file_name)
+    name_only = os.path.basename(file_name)
+    dir_path = os.path.join(self._storageplace, season_path, sub_dir)
+    os.makedirs(dir_path, exist_ok=True)
+
+    file_path = os.path.join(dir_path, f'{name_only}.strm')
+    if os.path.exists(file_path):
+        logger.debug(f'{file_name}.strm 文件已存在')
+        return False
+
+    try:
+        with open(file_path, 'w') as file:
+            file.write(src_url)
+            logger.debug(f'创建 {season_path}/{file_name}.strm 文件成功')
+            return True
+    except Exception as e:
+        logger.error('创建strm源文件失败：' + str(e))
+        return False
+
+
+
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
