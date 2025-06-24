@@ -1,4 +1,3 @@
-# coding: utf-8
 import os
 import time
 from datetime import datetime, timedelta
@@ -42,7 +41,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.6.3"
+    plugin_version = "2.6.4"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -55,6 +54,7 @@ class ANiStrm100(_PluginBase):
     _fulladd = False
     _allseason = False
     _storageplace = None
+
     _scheduler: Optional[BackgroundScheduler] = None
 
     def init_plugin(self, config: dict = None):
@@ -98,15 +98,16 @@ class ANiStrm100(_PluginBase):
         for month in range(current_month, 0, -1):
             if month in [10, 7, 4, 1]:
                 self._date = f'{current_year}-{month}'
-                return self._date
+                return f'{current_year}-{month}'
 
     def __is_valid_file(self, name: str) -> bool:
-        return 'ani' in name.lower()
+        return 'ANi' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
         url = f'https://openani.an-i.workers.dev/{self.__get_ani_season()}/'
         rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
+        logger.debug(rep.text)
         files_json = rep.json().get('files', [])
         return [file['name'] for file in files_json]
 
@@ -126,52 +127,36 @@ class ANiStrm100(_PluginBase):
             })
         return result
 
-    @retry(Exception, tries=3, logger=logger, ret=[])
     def get_all_season_list(self, start_year: int = 2018) -> List[Tuple[str, str]]:
         now = datetime.now()
         all_files = []
-
-        def fetch_season_folder(season: str, subfolder: str = ""):
-            url = f'https://openani.an-i.workers.dev/{season}/{subfolder}'.rstrip('/')
-            try:
-                rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get(url=url)
-                files_json = rep.json().get('files', [])
-            except Exception as e:
-                logger.warn(f"获取 {season}/{subfolder} 内容失败: {e}")
-                return
-
-            for file in files_json:
-                name = file.get("name")
-                if not name:
-                    continue
-                full_path = os.path.join(subfolder, name).replace("\\", "/")
-                if self.__is_valid_file(name):
-                    all_files.append((season, full_path))
-                elif not os.path.splitext(name)[1]:  # 子目录
-                    fetch_season_folder(season, full_path)
-
         for year in range(start_year, now.year + 1):
             for month in [1, 4, 7, 10]:
                 season = f"{year}-{month}"
                 logger.info(f"正在获取季度：{season}")
-                fetch_season_folder(season)
-
+                try:
+                    url = f'https://openani.an-i.workers.dev/{season}/'
+                    rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
+                    files_json = rep.json().get('files', [])
+                    for file in files_json:
+                        name = file.get('name')
+                        if name:
+                            all_files.append((season, name))
+                except Exception as e:
+                    logger.warn(f"获取 {season} 季度番剧失败: {e}")
         return all_files
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
 
-        sub_dir = os.path.dirname(file_name)
-        name_only = os.path.basename(file_name)
-        dir_path = os.path.join(self._storageplace, season_path, sub_dir)
+        dir_path = os.path.join(self._storageplace, season_path)
         os.makedirs(dir_path, exist_ok=True)
 
-        file_path = os.path.join(dir_path, f'{name_only}.strm')
+        file_path = os.path.join(dir_path, f'{file_name}.strm')
         if os.path.exists(file_path):
             logger.debug(f'{file_name}.strm 文件已存在')
             return False
-
         try:
             with open(file_path, 'w') as file:
                 file.write(src_url)
@@ -209,6 +194,47 @@ class ANiStrm100(_PluginBase):
                     cnt += 1
         logger.info(f'新创建了 {cnt} 个strm文件')
 
+    def get_state(self) -> bool:
+        return self._enabled
+
+    def get_command(self) -> List[Dict[str, Any]]:
+        pass
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        pass
+
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        return [
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'cron', 'label': '执行周期', 'placeholder': '0 0 ? ? ?'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'storageplace', 'label': 'Strm存储地址', 'placeholder': '/downloads/strm'}}]}
+                        ]
+                    }
+                ]
+            }
+        ], {
+            "enabled": False,
+            "onlyonce": False,
+            "fulladd": False,
+            "allseason": False,
+            "storageplace": "/downloads/strm",
+            "cron": "*/20 22,23,0,1 * * *",
+        }
+
     def __update_config(self):
         self.update_config({
             "onlyonce": self._onlyonce,
@@ -218,3 +244,21 @@ class ANiStrm100(_PluginBase):
             "allseason": self._allseason,
             "storageplace": self._storageplace,
         })
+
+    def get_page(self) -> List[dict]:
+        pass
+
+    def stop_service(self):
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+        except Exception as e:
+            logger.error("退出插件失败：%s" % str(e))
+
+if __name__ == "__main__":
+    anistrm100 = ANiStrm100()
+    name_list = anistrm100.get_all_season_list()
+    print(name_list)
