@@ -41,7 +41,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.5.1"
+    plugin_version = "2.5.2"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -101,7 +101,7 @@ class ANiStrm100(_PluginBase):
                 return f'{current_year}-{month}'
 
     def __is_valid_file(self, name: str) -> bool:
-        return 'Ani' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
+        return 'ANi' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
