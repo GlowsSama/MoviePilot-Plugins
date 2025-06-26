@@ -43,7 +43,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.9.0" # <<< 修改：版本更新
+    plugin_version = "2.7.0" # <<< 修改：版本更新
     plugin_author = "GlowsSama & Gemini"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
