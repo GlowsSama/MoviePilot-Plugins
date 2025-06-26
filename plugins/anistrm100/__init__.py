@@ -25,14 +25,14 @@ def retry(ExceptionToCheck: Any,
                 except ExceptionToCheck as e:
                     msg = f"未获取到文件信息，{mdelay}秒后重试 ..."
                     if logger:
-                        logger.warn(msg)
+                        logger.warning(msg)
                     else:
                         print(msg)
                     time.sleep(mdelay)
                     mtries -= 1
                     mdelay *= backoff
             if logger:
-                logger.warn('请确保当前季度番剧文件夹存在或检查网络问题')
+                logger.warning('请确保当前季度番剧文件夹存在或检查网络问题')
             return ret
         return f_retry
     return deco_retry
@@ -41,7 +41,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.4.6"
+    plugin_version = "2.5.2"
     plugin_author = "GlowsSama"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -101,7 +101,7 @@ class ANiStrm100(_PluginBase):
                 return f'{current_year}-{month}'
 
     def __is_valid_file(self, name: str) -> bool:
-        return 'ANi' in name  # 或 return 'ani' in name.lower() 如果要忽略大小写
+        return 'ANi' in name
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_current_season_list(self) -> List[str]:
@@ -130,6 +130,27 @@ class ANiStrm100(_PluginBase):
     def get_all_season_list(self, start_year: int = 2018) -> List[Tuple[str, str]]:
         now = datetime.now()
         all_files = []
+
+        def recurse_files(json_data, parent_path=""):
+            result = []
+            for item in json_data:
+                name = item.get("name")
+                if not name:
+                    continue
+                path = f"{parent_path}/{name}" if parent_path else name
+                if item.get("type") == "folder":
+                    try:
+                        url = f'https://openani.an-i.workers.dev/{season}/{path}/'
+                        rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
+                        sub_files = rep.json().get('files', [])
+                        result.extend(recurse_files(sub_files, path))
+                    except Exception as e:
+                        logger.warning(f"读取子目录 {path} 失败: {e}")
+                else:
+                    if "ANi" in name:
+                        result.append((season, path))
+            return result
+
         for year in range(start_year, now.year + 1):
             for month in [1, 4, 7, 10]:
                 season = f"{year}-{month}"
@@ -138,24 +159,23 @@ class ANiStrm100(_PluginBase):
                     url = f'https://openani.an-i.workers.dev/{season}/'
                     rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
                     files_json = rep.json().get('files', [])
-                    for file in files_json:
-                        name = file.get('name')
-                        if name:
-                            all_files.append((season, name))
+                    all_files.extend(recurse_files(files_json))
                 except Exception as e:
-                    logger.warn(f"获取 {season} 季度番剧失败: {e}")
+                    logger.warning(f"获取 {season} 季度番剧失败: {e}")
         return all_files
 
     def __touch_strm_file(self, file_name, file_url: str = None, season: str = None) -> bool:
         season_path = season if season else self._date
         src_url = file_url if file_url else f'https://openani.an-i.workers.dev/{season_path}/{file_name}?d=true'
-
-        dir_path = os.path.join(self._storageplace, season_path)
+        sub_dir = os.path.dirname(file_name)
+        dir_path = os.path.join(self._storageplace, season_path, sub_dir)
         os.makedirs(dir_path, exist_ok=True)
 
-        file_path = os.path.join(dir_path, f'{file_name}.strm')
+        file_base_name = os.path.basename(file_name)
+        file_path = os.path.join(dir_path, f'{file_base_name}.strm')
+
         if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
+            logger.debug(f'{file_base_name}.strm 文件已存在')
             return False
         try:
             with open(file_path, 'w') as file:
@@ -231,34 +251,4 @@ class ANiStrm100(_PluginBase):
             "onlyonce": False,
             "fulladd": False,
             "allseason": False,
-            "storageplace": "/downloads/strm",
-            "cron": "*/20 22,23,0,1 * * *",
-        }
-
-    def __update_config(self):
-        self.update_config({
-            "onlyonce": self._onlyonce,
-            "cron": self._cron,
-            "enabled": self._enabled,
-            "fulladd": self._fulladd,
-            "allseason": self._allseason,
-            "storageplace": self._storageplace,
-        })
-
-    def get_page(self) -> List[dict]:
-        pass
-
-    def stop_service(self):
-        try:
-            if self._scheduler:
-                self._scheduler.remove_all_jobs()
-                if self._scheduler.running:
-                    self._scheduler.shutdown()
-                self._scheduler = None
-        except Exception as e:
-            logger.error("退出插件失败：%s" % str(e))
-
-if __name__ == "__main__":
-    anistrm100 = ANiStrm100()
-    name_list = anistrm100.get_all_season_list()
-    print(name_list)
+            "storage
