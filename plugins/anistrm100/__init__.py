@@ -1,7 +1,9 @@
 import os
 import time
 from datetime import datetime, timedelta
-import re # 导入正则表达式库
+import re 
+import shutil # 导入 shutil 模块
+import tempfile # 导入 tempfile 模块
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -43,7 +45,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.7.0" # <<< 修改：版本更新
+    plugin_version = "2.7.1"
     plugin_author = "GlowsSama & Gemini"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -74,8 +76,8 @@ class ANiStrm100(_PluginBase):
             if self._enabled and self._cron:
                 try:
                     self._scheduler.add_job(func=self.__task,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="ANiStrm100文件创建")
+                                             trigger=CronTrigger.from_crontab(self._cron),
+                                             name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
                 except Exception as err:
                     logger.error(f"定时任务配置错误：{str(err)}")
@@ -83,10 +85,10 @@ class ANiStrm100(_PluginBase):
             if self._onlyonce:
                 logger.info(f"ANi-Strm服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.__task,
-                                        args=[self._fulladd, self._allseason],
-                                        trigger='date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="ANiStrm100文件创建")
+                                         args=[self._fulladd, self._allseason],
+                                         trigger='date',
+                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                         name="ANiStrm100文件创建")
                 self._onlyonce = False
                 self._fulladd = False
                 self._allseason = False
@@ -192,33 +194,48 @@ class ANiStrm100(_PluginBase):
             logger.warn(f"获取 'ANi' 目录的文件失败: {e}")
             
         return all_files
-
+    
+    # <<< 修改：使用临时目录创建文件，再移动到目标位置 >>>
     def __touch_strm_file(self, file_name: str, season: str, sub_paths: List[str] = None, file_url: str = None) -> bool:
         sub_paths = sub_paths or []
         
-        # 'season' 参数现在可以是 '2024-1' 也可以是 'ANi'
-        dir_path = os.path.join(self._storageplace, season, *sub_paths)
-        os.makedirs(dir_path, exist_ok=True)
+        # 构造最终的目标目录
+        # 目标目录是 {storageplace}/{season}，不包含 sub_paths
+        target_dir_path = os.path.join(self._storageplace, season)
+        os.makedirs(target_dir_path, exist_ok=True)
 
+        # 构造 .strm 文件的最终目标路径
+        target_file_name = f'{file_name}.strm'
+        target_file_path = os.path.join(target_dir_path, target_file_name)
+        
+        # 检查最终文件是否已存在
+        if os.path.exists(target_file_path):
+            logger.debug(f'{target_file_name} 文件已存在于最终目录，跳过创建。')
+            return False
+
+        # 构造远程 URL
         if file_url:
             src_url = file_url
         else:
-            # 同样，'season' 可以是 'ANi'
             remote_path = "/".join([season] + sub_paths + [file_name])
             src_url = f'https://openani.an-i.workers.dev/{remote_path}?d=true'
 
-        file_path = os.path.join(dir_path, f'{file_name}.strm')
-        if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
-            return False
-        
+        # 使用临时目录来创建 .strm 文件
         try:
-            with open(file_path, 'w', encoding='utf-8') as file:
-                file.write(src_url)
-            logger.debug(f'成功创建 .strm 文件: {file_path}')
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # 在临时目录中创建 .strm 文件
+                temp_file_path = os.path.join(temp_dir, target_file_name)
+                with open(temp_file_path, 'w', encoding='utf-8') as file:
+                    file.write(src_url)
+                logger.debug(f'成功在临时目录创建 .strm 文件: {temp_file_path}')
+                
+                # 将临时文件移动到最终目标位置
+                shutil.move(temp_file_path, target_file_path)
+                logger.debug(f'成功将文件从临时目录移动到: {target_file_path}')
+
             return True
         except Exception as e:
-            logger.error(f'创建 .strm 文件 {file_path} 失败: {e}')
+            logger.error(f'创建或移动 .strm 文件 {target_file_name} 失败: {e}')
             return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
@@ -246,6 +263,7 @@ class ANiStrm100(_PluginBase):
             logger.info(f'处理RSS源，找到 {len(rss_info_list)} 个新项目。')
             for rss_info in rss_info_list:
                 if self.__is_valid_file(rss_info['title']):
+                    # 使用 from_rss=True 标记来处理来自 RSS 的文件，以适应不同的路径逻辑
                     if self.__touch_strm_file(file_name=rss_info['title'], 
                                               file_url=rss_info['link'], 
                                               season=rss_info['season'], 
