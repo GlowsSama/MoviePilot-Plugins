@@ -43,8 +43,8 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.0.2" # <<< 修改：版本更新
-    plugin_author = "GlowsSama"
+    plugin_version = "2.8.0" # <<< 修改：版本更新
+    plugin_author = "GlowsSama & Gemini"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
     plugin_order = 15
@@ -212,37 +212,18 @@ class ANiStrm100(_PluginBase):
         os.makedirs(local_dir_path, exist_ok=True)
 
         # 2. 将子目录名合并到本地文件名中
-        # local_file_name_final = file_name
-        # if sub_paths:
-        #     # 使用 " - " 作为分隔符，将子目录名（如番剧名）作为前缀
-        #     prefix = " - ".join(sub_paths)
-        #     local_file_name_final = f"{prefix} - {file_name}"
+        local_file_name_final = file_name
+        if sub_paths:
+            # 使用 " - " 作为分隔符，将子目录名（如番剧名）作为前缀
+            prefix = " - ".join(sub_paths)
+            local_file_name_final = f"{prefix} - {file_name}"
         
-        # 2. **修改后的逻辑**：只保留文件名中 '[ANi]' 及其后的内容
-        prefix_start_index = file_name.find('[ANi]')
-        if prefix_start_index != -1:
-            # 如果文件名中包含 '[ANi]'，则从该位置开始截取
-            local_file_name_final = file_name[prefix_start_index:]
-        else:
-            # 如果不包含，则保持原文件名不变
-            local_file_name_final = file_name
-
         # 3. 组合成最终的本地 .strm 文件完整路径
         local_strm_file_path = os.path.join(local_dir_path, f'{local_file_name_final}.strm')
 
         # --- 第三部分：检查文件并写入，使用新的本地路径和文件名变量 ---
         if os.path.exists(local_strm_file_path):
             logger.debug(f'文件已存在，跳过: {local_strm_file_path}')
-            return False
-        
-        try:
-            # 写入文件，内容是【未改变】的原始远程URL
-            with open(local_strm_file_path, 'w', encoding='utf-8') as file:
-                file.write(src_url)
-            logger.debug(f'成功创建 .strm 文件: {local_strm_file_path}')
-            return True
-        except Exception as e:
-            logger.error(f'创建 .strm 文件 {local_strm_file_path} 失败: {e}')
             return False
         
         try:
@@ -309,7 +290,7 @@ d_api(self) -> List[Dict[str, Any]]:
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次'}}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '补全历史番剧strm}}]}
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
                         ]
                     },
                     {
