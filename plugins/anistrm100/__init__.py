@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
-import re # 导入正则表达式库，用于从URL中解析季度信息
+import re # 导入正则表达式库
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -43,14 +43,13 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.6.8" # 插件版本
-    plugin_author = "GlowsSama"
-    author_url = "https://github.com/GlowsSama"
+    plugin_version = "2.7.0" # <<< 修改：版本更新
+    plugin_author = "GlowsSama & Gemini"
+    author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
     plugin_order = 15
     auth_level = 2
 
-    # 插件配置项
     _enabled = False
     _cron = None
     _onlyonce = False
@@ -102,60 +101,40 @@ class ANiStrm100(_PluginBase):
         current_year = current_date.year
         current_month = idx_month if idx_month else current_date.month
         
-        # 此逻辑确定当前季度的*开始*月份
-        if 1 <= current_month <= 3:
-            season_month = 1
-        elif 4 <= current_month <= 6:
-            season_month = 4
-        elif 7 <= current_month <= 9:
-            season_month = 7
-        else: # 10, 11, 12
-            season_month = 10
+        if 1 <= current_month <= 3: season_month = 1
+        elif 4 <= current_month <= 6: season_month = 4
+        elif 7 <= current_month <= 9: season_month = 7
+        else: season_month = 10
         self._date = f'{current_year}-{season_month}'
         return self._date
 
     def __is_valid_file(self, name: str) -> bool:
-        # 这是你的规则：一个可下载的文件名必须包含 "ANi"
         return 'ANi' in name
 
-    # <<< 新增：核心的递归遍历函数 >>>
     @retry(Exception, tries=3, logger=logger, ret=[])
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
-        """
-        递归遍历目录以查找所有有效文件。
-        :param path_parts: 路径部分的列表，例如 ['2024-4'] 或 ['2024-4', '番剧名']。
-        :return: 一个元组列表，每个元组包含 (季度, 子路径列表, 文件名)。
-        """
         all_files = []
         current_path_str = "/".join(path_parts)
         url = f'https://openani.an-i.workers.dev/{current_path_str}/'
         
         logger.debug(f"正在遍历: {url}")
         rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
-        # 假设API即使在没有文件时也会优雅地返回一个包含'files'键的JSON对象
         items = rep.json().get('files', [])
 
-        season_str = path_parts[0] # 列表的第一个元素总是季度, e.g., '2024-4'
-        sub_path_list = path_parts[1:] # 剩下的是子目录
+        base_folder = path_parts[0]
+        sub_path_list = path_parts[1:]
 
         for item in items:
             item_name = item.get('name')
-            if not item_name:
-                continue
+            if not item_name: continue
 
             if self.__is_valid_file(item_name):
-                # 这是一个文件，将其添加到我们的结果中
-                all_files.append((season_str, sub_path_list, item_name))
-            else:
-                # 这很可能是一个目录，需要递归进入
-                # 通常文件夹的 'size' 为0或不存在，但根据你定义的规则，我们检查文件名
-                # 为避免在奇怪的文件夹名上产生无限循环，我们增加一个简单的检查
-                if '.' not in item_name: # 一个简单的启发式方法来猜测它是否是文件夹
-                     all_files.extend(self.__traverse_directory(path_parts + [item_name]))
+                all_files.append((base_folder, sub_path_list, item_name))
+            elif '.' not in item_name:
+                 all_files.extend(self.__traverse_directory(path_parts + [item_name]))
         
         return all_files
 
-    # <<< 修改：现在使用递归遍历函数 >>>
     def get_current_season_list(self) -> List[Tuple[str, List[str], str]]:
         season = self.__get_ani_season()
         logger.info(f"正在获取当前季度的文件列表: {season}")
@@ -171,31 +150,29 @@ class ANiStrm100(_PluginBase):
         for item in items:
             title = DomUtils.tag_value(item, "title", default="")
             link = DomUtils.tag_value(item, "link", default="")
-            # 尝试从链接本身提取季度和路径，以便更好地分类
-            # 示例链接: https://.../2024-4/番剧名/文件名.mp4
             season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
             if season_match:
                 full_path = link.split(season_match.group(0))[-1]
                 path_parts = full_path.split('/')
-                file_name_from_link = path_parts.pop() # 移除并获取最后一个元素（文件名）
-                # 确保RSS的标题和链接中的文件名匹配
+                file_name_from_link = path_parts.pop()
                 if title in file_name_from_link:
                      result.append({
                         'season': season_match.group(1),
                         'path_parts': path_parts,
-                        'title': title, # 保留原始标题
+                        'title': title,
                         'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
                     })
         return result
 
-    # <<< 修改：现在使用递归遍历函数 >>>
-    def get_all_season_list(self, start_year: int = 2018) -> List[Tuple[str, List[str], str]]:
+    # <<< 修改：起始年份改为2019，并增加对 "ANi" 目录的处理 >>>
+    def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
         all_files = []
+        # 1. 遍历所有年份和季度
         for year in range(start_year, now.year + 1):
             for month in [1, 4, 7, 10]:
                 if year == now.year and month > now.month:
-                    continue # 不检查未来的季度
+                    continue
                 season = f"{year}-{month}"
                 logger.info(f"正在获取季度 {season} 的文件列表")
                 try:
@@ -204,21 +181,29 @@ class ANiStrm100(_PluginBase):
                         all_files.extend(season_files)
                 except Exception as e:
                     logger.warn(f"获取季度 {season} 的番剧失败: {e}")
+
+        # 2. 单独处理特殊的 "ANi" 根目录
+        logger.info("正在获取 'ANi' 根目录的文件列表")
+        try:
+            ani_files = self.__traverse_directory(['ANi'])
+            if ani_files:
+                all_files.extend(ani_files)
+        except Exception as e:
+            logger.warn(f"获取 'ANi' 目录的文件失败: {e}")
+            
         return all_files
 
-    # <<< 修改：更新以处理子目录列表 >>>
     def __touch_strm_file(self, file_name: str, season: str, sub_paths: List[str] = None, file_url: str = None) -> bool:
         sub_paths = sub_paths or []
         
-        # 构建本地目录路径，包括所有子目录
-        # os.path.join 通过 * 操作符可以正确处理子路径列表
+        # 'season' 参数现在可以是 '2024-1' 也可以是 'ANi'
         dir_path = os.path.join(self._storageplace, season, *sub_paths)
         os.makedirs(dir_path, exist_ok=True)
 
-        # 构建 .strm 文件内容的源URL
         if file_url:
             src_url = file_url
         else:
+            # 同样，'season' 可以是 'ANi'
             remote_path = "/".join([season] + sub_paths + [file_name])
             src_url = f'https://openani.an-i.workers.dev/{remote_path}?d=true'
 
@@ -236,15 +221,13 @@ class ANiStrm100(_PluginBase):
             logger.error(f'创建 .strm 文件 {file_path} 失败: {e}')
             return False
 
-    # <<< 修改：更新主任务逻辑以适应新的数据结构 >>>
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
-        file_list = []
-
+        
         if allseason:
-            logger.info("开始任务：为所有历史季度创建strm文件。")
+            logger.info("开始任务：为所有历史季度和'ANi'目录创建strm文件。")
             file_list = self.get_all_season_list()
-            logger.info(f'处理所有季度，共找到 {len(file_list)} 个文件。')
+            logger.info(f"处理所有历史内容，共找到 {len(file_list)} 个文件。")
             for season, path_parts, file_name in file_list:
                 if self.__is_valid_file(file_name):
                     if self.__touch_strm_file(file_name=file_name, season=season, sub_paths=path_parts):
@@ -281,7 +264,6 @@ class ANiStrm100(_PluginBase):
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        # 这部分是UI界面定义
         return [
             {
                 'component': 'VForm',
@@ -337,7 +319,6 @@ class ANiStrm100(_PluginBase):
             logger.error("退出插件失败：%s" % str(e))
 
 if __name__ == "__main__":
-    # 用于本地测试的示例代码
     class MockLogger:
         def info(self, msg): print(f"信息: {msg}")
         def warn(self, msg): print(f"警告: {msg}")
@@ -347,17 +328,22 @@ if __name__ == "__main__":
     logger = MockLogger()
     
     anistrm100 = ANiStrm100()
-    # 为测试配置插件
-    anistrm100._storageplace = "./strm_test_cn" # 测试用的strm输出目录
-    anistrm100.settings = lambda: None # 模拟settings对象
+    anistrm100._storageplace = "./strm_test_cn"
+    anistrm100.settings = lambda: None
     anistrm100.settings.USER_AGENT = "Mozilla/5.0"
     anistrm100.settings.PROXY = None
     
-    print("--- 测试 get_all_season_list (为加快速度，从最近的年份开始) ---")
-    all_files = anistrm100.get_all_season_list(start_year=2024)
-    # 打印前5个结果作为示例
-    for season, path_parts, file_name in all_files[:5]: 
-        print(f"季度: {season}, 路径: {'/'.join(path_parts)}, 文件: {file_name}")
-    
-    print("\n--- 模拟任务运行 (fulladd模式) ---")
-    anistrm100.__task(fulladd=True)
+    print("--- 测试 get_all_season_list (起始年份2019，包含 'ANi' 目录) ---")
+    all_files = anistrm100.get_all_season_list() # 使用默认起始年份
+    print(f"--- 总共找到 {len(all_files)} 个文件 ---")
+
+    # 打印一些结果作为示例
+    for season, path_parts, file_name in all_files[:3]:
+        print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
+    if len(all_files) > 3:
+        print("...")
+        for season, path_parts, file_name in all_files[-3:]:
+             print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
+
+    print("\n--- 模拟任务运行 (allseason模式) ---")
+    anistrm100.__task(allseason=True)
