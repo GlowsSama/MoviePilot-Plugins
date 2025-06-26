@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
-import re # 导入正则表达式库
+import re
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -43,22 +43,23 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.7.0" # <<< 修改：版本更新
+    plugin_version = "2.8.0" # <<< 修改：版本更新
     plugin_author = "GlowsSama & Gemini"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
     plugin_order = 15
     auth_level = 2
 
+    # ... (其他类成员变量保持不变) ...
     _enabled = False
     _cron = None
     _onlyonce = False
     _fulladd = False
     _allseason = False
     _storageplace = None
-
     _scheduler: Optional[BackgroundScheduler] = None
-
+    
+    # ... (init_plugin, __get_ani_season 等函数保持不变) ...
     def init_plugin(self, config: dict = None):
         self.stop_service()
         if config:
@@ -74,8 +75,8 @@ class ANiStrm100(_PluginBase):
             if self._enabled and self._cron:
                 try:
                     self._scheduler.add_job(func=self.__task,
-                                            trigger=CronTrigger.from_crontab(self._cron),
-                                            name="ANiStrm100文件创建")
+                                             trigger=CronTrigger.from_crontab(self._cron),
+                                             name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
                 except Exception as err:
                     logger.error(f"定时任务配置错误：{str(err)}")
@@ -83,10 +84,10 @@ class ANiStrm100(_PluginBase):
             if self._onlyonce:
                 logger.info(f"ANi-Strm服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.__task,
-                                        args=[self._fulladd, self._allseason],
-                                        trigger='date',
-                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                        name="ANiStrm100文件创建")
+                                         args=[self._fulladd, self._allseason],
+                                         trigger='date',
+                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                         name="ANiStrm100文件创建")
                 self._onlyonce = False
                 self._fulladd = False
                 self._allseason = False
@@ -157,20 +158,19 @@ class ANiStrm100(_PluginBase):
                 file_name_from_link = path_parts.pop()
                 if title in file_name_from_link:
                      result.append({
-                        'season': season_match.group(1),
-                        'path_parts': path_parts,
-                        'title': title,
-                        'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
-                    })
+                         'season': season_match.group(1),
+                         'path_parts': path_parts,
+                         'title': title,
+                         'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
+                     })
         return result
 
-    # <<< 修改：起始年份改为2019，并增加对 "ANi" 目录的处理 >>>
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
         all_files = []
-        # 1. 遍历所有年份和季度
         for year in range(start_year, now.year + 1):
             for month in [1, 4, 7, 10]:
+                # 检查当前年份的未来月份
                 if year == now.year and month > now.month:
                     continue
                 season = f"{year}-{month}"
@@ -182,7 +182,6 @@ class ANiStrm100(_PluginBase):
                 except Exception as e:
                     logger.warn(f"获取季度 {season} 的番剧失败: {e}")
 
-        # 2. 单独处理特殊的 "ANi" 根目录
         logger.info("正在获取 'ANi' 根目录的文件列表")
         try:
             ani_files = self.__traverse_directory(['ANi'])
@@ -193,32 +192,51 @@ class ANiStrm100(_PluginBase):
             
         return all_files
 
+    # <<< 修改：核心修改在此函数中 >>>
     def __touch_strm_file(self, file_name: str, season: str, sub_paths: List[str] = None, file_url: str = None) -> bool:
         sub_paths = sub_paths or []
-        
-        # 'season' 参数现在可以是 '2024-1' 也可以是 'ANi'
-        dir_path = os.path.join(self._storageplace, season, *sub_paths)
-        os.makedirs(dir_path, exist_ok=True)
 
+        # --- 第一部分：构建远程URL (strm文件内容)，此部分逻辑保持不变 ---
+        # 确保URL包含完整的原始路径，包括所有子目录
         if file_url:
             src_url = file_url
         else:
-            # 同样，'season' 可以是 'ANi'
-            remote_path = "/".join([season] + sub_paths + [file_name])
+            remote_path_parts = [season] + sub_paths + [file_name]
+            remote_path = "/".join(remote_path_parts)
             src_url = f'https://openani.an-i.workers.dev/{remote_path}?d=true'
 
-        file_path = os.path.join(dir_path, f'{file_name}.strm')
-        if os.path.exists(file_path):
-            logger.debug(f'{file_name}.strm 文件已存在')
+        # --- 第二部分：构建本地存储路径和文件名，根据您的新规则进行修改 ---
+        
+        # 1. 本地目录路径不再包含子目录，只有根目录 (即 'season' 参数，如 '2024-1' 或 'ANi')
+        local_dir_path = os.path.join(self._storageplace, season)
+        os.makedirs(local_dir_path, exist_ok=True)
+
+        # 2. 修改文件名：只保留 'ANi' 及之后的部分
+        # 寻找文件名中第一个'['的位置
+        prefix_end_index = file_name.find('[ANi]')
+        if prefix_end_index != -1:
+            # 如果找到了'[ANi]'，则从那里开始截取文件名
+            local_file_name_final = file_name[prefix_end_index:]
+        else:
+            # 如果没有找到'[ANi]'，则保持原文件名不变（以防万一）
+            local_file_name_final = file_name
+
+        # 3. 组合成最终的本地 .strm 文件完整路径
+        local_strm_file_path = os.path.join(local_dir_path, f'{local_file_name_final}.strm')
+
+        # --- 第三部分：检查文件并写入，使用新的本地路径和文件名变量 ---
+        if os.path.exists(local_strm_file_path):
+            logger.debug(f'文件已存在，跳过: {local_strm_file_path}')
             return False
         
         try:
-            with open(file_path, 'w', encoding='utf-8') as file:
+            # 写入文件，内容是【未改变】的原始远程URL
+            with open(local_strm_file_path, 'w', encoding='utf-8') as file:
                 file.write(src_url)
-            logger.debug(f'成功创建 .strm 文件: {file_path}')
+            logger.debug(f'成功创建 .strm 文件: {local_strm_file_path}')
             return True
         except Exception as e:
-            logger.error(f'创建 .strm 文件 {file_path} 失败: {e}')
+            logger.error(f'创建 .strm 文件 {local_strm_file_path} 失败: {e}')
             return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
@@ -254,13 +272,14 @@ class ANiStrm100(_PluginBase):
         
         logger.info(f'任务完成。共创建了 {cnt} 个新的 .strm 文件。')
 
+    # ... (get_state, get_command, get_api, get_form 等函数保持不变) ...
     def get_state(self) -> bool:
         return self._enabled
 
     def get_command(self) -> List[Dict[str, Any]]:
         pass
 
-    def get_api(self) -> List[Dict[str, Any]]:
+d_api(self) -> List[Dict[str, Any]]:
         pass
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -329,21 +348,12 @@ if __name__ == "__main__":
     
     anistrm100 = ANiStrm100()
     anistrm100._storageplace = "./strm_test_cn"
-    anistrm100.settings = lambda: None
-    anistrm100.settings.USER_AGENT = "Mozilla/5.0"
-    anistrm100.settings.PROXY = None
+    anistrm100.settings = type('Settings', (), {'USER_AGENT': 'Mozilla/5.0', 'PROXY': None})
     
-    print("--- 测试 get_all_season_list (起始年份2019，包含 'ANi' 目录) ---")
-    all_files = anistrm100.get_all_season_list() # 使用默认起始年份
-    print(f"--- 总共找到 {len(all_files)} 个文件 ---")
-
-    # 打印一些结果作为示例
-    for season, path_parts, file_name in all_files[:3]:
-        print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
-    if len(all_files) > 3:
-        print("...")
-        for season, path_parts, file_name in all_files[-3:]:
-             print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
-
-    print("\n--- 模拟任务运行 (allseason模式) ---")
-    anistrm100.__task(allseason=True)
+    # 模拟一次创建
+    print("--- 模拟创建单个文件来检验新逻辑 ---")
+    anistrm100.__touch_strm_file(
+        file_name="[ANi] Sousou no Frieren - 01 (B-Global) [1080p].mp4",
+        season="2023-10",
+        sub_paths=["Sousou no Frieren"]
+    )
