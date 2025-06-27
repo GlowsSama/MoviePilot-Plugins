@@ -1,13 +1,4 @@
 {
-  "ANiStrm": {
-    "name": "ANi Strm",
-    "description": "自动获取当季所有番剧，生成strm文件，mp刮削入库，emby直接播放，免去下载，轻松拥有一个番剧媒体库",
-    "version": "2.4.2",
-    "v2": true,
-    "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png",
-    "author": "honue",
-    "level": 2
-  },
   "ANiStrm100": {
     "name": "ANiStrm100",
     "description": "自动获取当季所有番剧，生成strm文件，mp刮削入库，emby直接播放，免去下载，轻松拥有一个番剧媒体库",
@@ -16,21 +7,6 @@
     "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png",
     "author": "GlowsSama",
     "level": 2
-  },
-  "AdaptiveIntroSkip": {
-    "name": "自适应IntroSkip",
-    "description": "通过用户的暂停与播放动作，批量标记片头片尾",
-    "version": "1.7.7",
-    "v2": true,
-    "history": {
-      "v1.7": "fix: 新入库剧集标记片头的一些错误，如遇到问题请重置插件。",
-      "v1.6": "(火柴总定制版)",
-      "v1.5": "时间支持 分:秒 格式",
-      "v1.4": "增加用户事件筛选"
-    },
-    "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/chapter.png",
-    "author": "honue",
-    "level": 1
   },
   "DouBanWatching": {
     "name": "豆瓣书影音档案",
@@ -50,52 +26,6 @@
       "v1.8": "解决了容易提示cookie失效，导致同步失败的问题，现在用cookiecloud应该不用填保活了"
     },
     "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/douban.png",
-    "author": "honue",
-    "level": 1
-  },
-  "ShortCut": {
-    "name": "快捷指令",
-    "description": "IOS快捷指令，快速选片添加订阅",
-    "version": "1.5",
-    "v2": true,
-    "history": {
-      "v1.5": "修复 订阅&下载捷径，plugin_key未拼接的问题，目前捷径正常使用的无需变动。",
-      "v1.4": "提供两个版本的快捷指令，限制种子最多返回50个，增加显示副标题，有用到下载的需要更新快捷指令",
-      "v1.3": "增加选择种子下载功能，ios快捷指令需要重新安装配置"
-    },
-    "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/shortcut.jpg",
-    "author": "honue",
-    "level": 1
-  },
-  "CleanLogs": {
-    "name": "插件日志清理",
-    "description": "定时清理插件产生的日志",
-    "version": "1.1",
-    "v2": true,
-    "history": {
-      "v1.1": "t佬看不下去了，决定亲自出手",
-      "v1.0": "插件选择列表优化",
-      "v0.2": "好像删错了...，删除逻辑应该是保留末尾{row}行。"
-    },
-    "icon": "clean.png",
-    "author": "honue",
-    "level": 1
-  },
-  "BangumiRank": {
-    "name": "Bangumi榜单订阅",
-    "description": "Bangumi成员关注动画榜，时下流行番剧订阅，个人想看订阅",
-    "v2": true,
-    "version": "1.5",
-    "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/miku.jpg",
-    "author": "honue",
-    "level": 2
-  },
-  "FollowNotify": {
-    "name": "收藏更新通知",
-    "description": "在Emby上收藏剧集，当有新集更新时发送通知。适合针对性的获取剧集更新通知、榜单订阅时有不看的剧集不想收到更新通知。",
-    "v2": true,
-    "version": "1.1",
-    "icon": "like.jpg",
     "author": "honue",
     "level": 1
   },
@@ -121,13 +51,4 @@
       "v1.4": "增加文件名规则；避免大小写导致的番剧无法匹配"
     }
   },
-  "Cd2Upload": {
-    "name": "cd2上传",
-    "description": "将新入库的媒体文件，通过cd2上传生成strm（自用）",
-    "version": "0.0.9",
-    "v2": true,
-    "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/clouddrive.png",
-    "author": "honue",
-    "level": 3
-  }
 }
