@@ -5,7 +5,7 @@
     "version": "2.8.2",
     "v2": true,
     "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png",
-    "author": "GlowsSama",
+    "author": "honue,GlowsSama",
     "level": 2
   },
   "DouBanWatching": {
@@ -13,20 +13,9 @@
     "description": "将剧集在看、看完状态同步到豆瓣书影音档案。",
     "version": "1.9.4",
     "v2": true,
-    "history": {
-      "v1.9.3": "修复了一些问题，新版本可以设定显示数量。",
-      "v1.9.1": "删除旧版本数据，避免仪表盘报错",
-      "v1.9.0": "UI更新",
-      "v1.8.10": "支持标记触发同步，不用再手动打开视频同步一些已经看过的，想同步的视频。",
-      "v1.8.9": "完善报错信息",
-      "v1.8.8": "小组件样式优化",
-      "v1.8.7": "重构了下，应该没啥问题",
-      "v1.8.4": "微调了下小组件UI，图片点击可跳转豆瓣，mp不支持slot UI好难调，开摆！",
-      "v1.8.3": "支持仪表盘组件，现在样式还有点问题，之后再调整",
-      "v1.8": "解决了容易提示cookie失效，导致同步失败的问题，现在用cookiecloud应该不用填保活了"
     },
     "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/douban.png",
-    "author": "GlowsSama",
+    "author": "honue,GlowsSama",
     "level": 1
   },
   "BangumiSync": {
@@ -35,20 +24,8 @@
     "version": "1.9.0",
     "v2": true,
     "icon": "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/bangumi.jpg",
-    "author": "GlowsSama",
+    "author": "honue,GlowsSama",
     "level": 2,
-    "history": {
-      "v1.9.0": "支持通过episode group匹配季信息",
-      "v1.8.6": "使用单集原始名称匹配tmdb和bgm信息",
-      "v1.8.5": "支持Plex",
-      "v1.8.4": "修复当`tmdb_id`为空时同步失败的问题",
-      "v1.8.3": "新增`unique_id`匹配模式, 适配剧集组条目匹配",
-      "v1.8.2": "尝试解决因tmdb合并季无法匹配条目的问题",
-      "v1.8": "播放最后一集标记为看完",
-      "v1.7": "改进番剧识别的准确率",
-      "v1.6": "支持单集点格子",
-      "v1.5": "不再同步已经在看或看过的番剧，避免刷屏；更新时不再直接给出10分，避免覆盖评分",
-      "v1.4": "增加文件名规则；避免大小写导致的番剧无法匹配"
     }
   }
 }
