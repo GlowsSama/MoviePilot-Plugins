@@ -45,7 +45,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.8.1" # 版本更新，以体现新功能
+    plugin_version = "2.8.2" # 版本更新，以体现新功能
     plugin_author = "GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -119,7 +119,7 @@ class ANiStrm100(_PluginBase):
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
         all_files = []
         current_path_str = "/".join(path_parts)
-        url = f'https://openani.an-i.workers.dev/{current_path_str}/'
+        url = f'https://ani.v300.eu.org/{current_path_str}/'
         
         logger.debug(f"正在遍历: {url}")
         rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
@@ -171,7 +171,7 @@ class ANiStrm100(_PluginBase):
                             'season': season_match.group(1),
                             'path_parts': path_parts,
                             'title': title,
-                            'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
+                            'link': link.replace("resources.ani.rip", "ani.v300.eu.org")
                         })
             return result
         else:
@@ -223,7 +223,7 @@ class ANiStrm100(_PluginBase):
             src_url = file_url
         else:
             remote_path = "/".join([season] + sub_paths + [file_name])
-            src_url = f'https://openani.an-i.workers.dev/{remote_path}?d=true'
+            src_url = f'https://ani.v300.eu.org/{remote_path}?d=true'
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
