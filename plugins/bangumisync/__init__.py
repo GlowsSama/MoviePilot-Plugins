@@ -22,9 +22,9 @@ class BangumiSync(_PluginBase):
     # 插件版本
     plugin_version = "1.9.0"
     # 插件作者
-    plugin_author = "honue,happyTonakai"
+    plugin_author = "honue,happyTonakai,GlowsSama"
     # 作者主页
-    author_url = "https://github.com/happyTonakai"
+    author_url = "https://github.com/GlowsSama"
     # 插件配置项ID前缀
     plugin_config_prefix = "bangumisync_"
     # 加载顺序
