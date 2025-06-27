@@ -25,7 +25,7 @@ class DouBanWatching(_PluginBase):
     # 插件版本
     plugin_version = "1.9.5"
     # 插件作者
-    plugin_author = "GlowsSama"
+    plugin_author = "honue,GlowsSama"
     # 作者主页
     author_url = "https://github.com/GlowsSama"
     # 插件配置项ID前缀
