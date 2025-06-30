@@ -151,7 +151,7 @@ class ANiStrm100(_PluginBase):
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
-        addr = 'https://api.ani.rip/ani-download.xml'
+        addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
         # 增强健壮性：检查 ret 是否有效，以及是否有 .text 属性
         if ret and hasattr(ret, 'text'):
