@@ -148,7 +148,6 @@ class ANiStrm100(_PluginBase):
         
         return all_files
 
-    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) # 延迟增加
     def get_latest_list(self) -> List:
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}") 
