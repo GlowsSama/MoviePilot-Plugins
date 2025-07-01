@@ -402,4 +402,6 @@ if __name__ == "__main__":
     print("\n--- 模拟任务运行 (allseason模式) ---")
     anistrm100._overwrite = True # 模拟强制覆盖
     anistrm100.__task(allseason=True)
-    print("\n--- 模拟任务运行 (RSS模式，不
+    print("\n--- 模拟任务运行 (RSS模式，不覆盖) ---")
+    anistrm100._overwrite = False # 模拟不覆盖
+    anistrm100.__task(allseason=False, fulladd=False)
