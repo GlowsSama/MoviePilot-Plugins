@@ -2,8 +2,8 @@ import os
 import time
 from datetime import datetime, timedelta
 import re 
-import shutil 
-import tempfile 
+import shutil # 导入 shutil 模块
+import tempfile # 导入 tempfile 模块
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -19,7 +19,7 @@ from app.utils.dom import DomUtils
 
 # 重试装饰器
 def retry(ExceptionToCheck: Any,
-          tries: int = 3, delay: int = 5, backoff: int = 1, logger: Any = None, ret: Any = None): 
+          tries: int = 3, delay: int = 3, backoff: int = 1, logger: Any = None, ret: Any = None):
     def deco_retry(f):
         def f_retry(*args, **kwargs):
             mtries, mdelay = tries, delay
@@ -27,7 +27,7 @@ def retry(ExceptionToCheck: Any,
                 try:
                     return f(*args, **kwargs)
                 except ExceptionToCheck as e:
-                    msg = f"发生错误，将在 {tries - mtries + 1}/{tries} 次重试中，等待 {mdelay} 秒... 错误详情: {e}" # 优化日志
+                    msg = f"发生错误，将在 {mdelay} 秒后重试... 错误详情: {e}"
                     if logger:
                         logger.warn(msg)
                     else:
@@ -36,7 +36,7 @@ def retry(ExceptionToCheck: Any,
                     mtries -= 1
                     mdelay *= backoff
             if logger:
-                logger.error('多次重试后仍然失败。请检查网络连接、代理设置或目标服务是否可用。') 
+                logger.warn('多次重试后仍然失败。请检查文件夹是否存在或网络问题。')
             return ret
         return f_retry
     return deco_retry
@@ -45,9 +45,9 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.0.1" # 版本更新，重大功能调整
-    plugin_author = "GlowsSama & Gemini"
-    author_url = "https://github.com/honue"
+    plugin_version = "2.8.3" # 版本更新，以体现新功能
+    plugin_author = "honue,GlowsSama"
+    author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
     plugin_order = 15
     auth_level = 2
@@ -58,8 +58,7 @@ class ANiStrm100(_PluginBase):
     _fulladd = False
     _allseason = False
     _storageplace = None
-    _overwrite = False 
-    _onlyonce_mode = "rss" # 新增：立即运行一次的模式，默认从RSS获取
+    _overwrite = False # 新增：强制覆盖选项
 
     _scheduler: Optional[BackgroundScheduler] = None
 
@@ -72,16 +71,13 @@ class ANiStrm100(_PluginBase):
             self._fulladd = config.get("fulladd")
             self._allseason = config.get("allseason")
             self._storageplace = config.get("storageplace")
-            self._overwrite = config.get("overwrite", False) 
-            self._onlyonce_mode = config.get("onlyonce_mode", "rss") # 读取新配置
+            self._overwrite = config.get("overwrite", False) # 读取配置，默认为 False
         
         if self._enabled or self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             if self._enabled and self._cron:
                 try:
-                    # Cron 任务直接使用持久化配置的 _fulladd 和 _allseason
                     self._scheduler.add_job(func=self.__task,
-                                             args=[self._fulladd, self._allseason, False, "rss"], # fulladd, allseason, is_onlyonce_run, onlyonce_mode (for cron, onlyonce_mode is irrelevant)
                                              trigger=CronTrigger.from_crontab(self._cron),
                                              name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
@@ -89,18 +85,17 @@ class ANiStrm100(_PluginBase):
                     logger.error(f"定时任务配置错误：{str(err)}")
             
             if self._onlyonce:
-                logger.info(f"ANi-Strm服务启动，立即运行一次，模式：{self._onlyonce_mode}")
-                # 立即运行一次的任务，根据 _onlyonce_mode 传递参数
-                # fulladd 和 allseason 设为 False，由 __task 内部根据 onlyonce_mode 决定
+                logger.info(f"ANi-Strm服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.__task,
-                                         args=[False, False, True, self._onlyonce_mode], 
+                                         args=[self._fulladd, self._allseason],
                                          trigger='date',
                                          run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                          name="ANiStrm100文件创建")
-                # 立即运行一次后，将 onlyonce 标志重置为 False，避免重复触发
-                self._onlyonce = False 
+                self._onlyonce = False
+                self._fulladd = False
+                self._allseason = False
             
-            self.__update_config() # 保存最新的配置状态，包括重置后的 _onlyonce
+            self.__update_config()
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
@@ -120,19 +115,20 @@ class ANiStrm100(_PluginBase):
     def __is_valid_file(self, name: str) -> bool:
         return 'ANi' in name
 
-    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) 
+    @retry(Exception, tries=3, logger=logger, ret=[])
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
         all_files = []
         current_path_str = "/".join(path_parts)
-        url = f'https://openani.an-i.workers.dev/{current_path_str}/'
+        url = f'https://ani.v300.eu.org/{current_path_str}/'
         
         logger.debug(f"正在遍历: {url}")
         rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
+        # 增强健壮性：检查 rep 是否有效，以及是否有 .json() 方法
         if rep and hasattr(rep, 'json'):
             items = rep.json().get('files', [])
         else:
             logger.warn(f"无法获取有效的响应或响应无json方法，URL: {url}")
-            items = [] 
+            items = [] # 返回空列表以避免后续错误
 
         base_folder = path_parts[0]
         sub_path_list = path_parts[1:]
@@ -148,11 +144,16 @@ class ANiStrm100(_PluginBase):
         
         return all_files
 
-    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) 
+    def get_current_season_list(self) -> List[Tuple[str, List[str], str]]:
+        season = self.__get_ani_season()
+        logger.info(f"正在获取当前季度的文件列表: {season}")
+        return self.__traverse_directory([season])
+
+    @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
-        addr = 'https://api.ani.rip/ani-download.xml'
-        logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}") 
+        addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
+        # 增强健壮性：检查 ret 是否有效，以及是否有 .text 属性
         if ret and hasattr(ret, 'text'):
             dom_tree = xml.dom.minidom.parseString(ret.text)
             items = dom_tree.documentElement.getElementsByTagName("item")
@@ -164,19 +165,18 @@ class ANiStrm100(_PluginBase):
                 if season_match:
                     full_path = link.split(season_match.group(0))[-1]
                     path_parts = full_path.split('/')
-                    file_name_from_link = path_parts.pop() 
+                    file_name_from_link = path_parts.pop()
                     if title in file_name_from_link:
                          result.append({
                             'season': season_match.group(1),
-                            'path_parts': path_parts, 
-                            'title': title, 
-                            'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
+                            'path_parts': path_parts,
+                            'title': title,
+                            'link': link.replace("resources.ani.rip", "ani.v300.eu.org")
                         })
-            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。") 
             return result
         else:
-            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。") 
-            return [] 
+            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}")
+            return [] # 返回空列表以避免后续错误
 
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
@@ -204,13 +204,17 @@ class ANiStrm100(_PluginBase):
             
         return all_files
     
+    # <<< 修改：新增 overwrite 参数，并根据其决定是否跳过文件存在检查 >>>
     def __touch_strm_file(self, file_name: str, season: str, sub_paths: List[str] = None, file_url: str = None, overwrite: bool = False) -> bool:
+        sub_paths = sub_paths or []
+        
         target_dir_path = os.path.join(self._storageplace, season)
         os.makedirs(target_dir_path, exist_ok=True)
 
         target_file_name = f'{file_name}.strm'
         target_file_path = os.path.join(target_dir_path, target_file_name)
         
+        # 检查最终文件是否已存在，如果不是强制覆盖模式，则跳过
         if not overwrite and os.path.exists(target_file_path):
             logger.debug(f'{target_file_name} 文件已存在于最终目录，跳过创建。')
             return False
@@ -218,8 +222,8 @@ class ANiStrm100(_PluginBase):
         if file_url:
             src_url = file_url
         else:
-            remote_path = "/".join([season] + (sub_paths or []) + [file_name])
-            src_url = f'https://openani.an-i.workers.dev/{remote_path}?d=true'
+            remote_path = "/".join([season] + sub_paths + [file_name])
+            src_url = f'https://ani.v300.eu.org/{remote_path}?d=true'
 
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -228,35 +232,21 @@ class ANiStrm100(_PluginBase):
                     file.write(src_url)
                 logger.debug(f'成功在临时目录创建 .strm 文件: {temp_file_path}')
                 
+                # shutil.move 会自动处理目标文件已存在时的覆盖（如果是文件）
                 shutil.move(temp_file_path, target_file_path)
-                logger.info(f'成功将文件从临时目录移动到: {target_file_path}')
+                logger.info(f'成功将文件从临时目录移动到: {target_file_path}') # 修改为info级别，更明确地表示成功
 
             return True
         except Exception as e:
             logger.error(f'创建或移动 .strm 文件 {target_file_name} 失败: {e}')
             return False
 
-    # <<< 核心修改：__task 函数现在可以根据 is_onlyonce_run 和 onlyonce_mode 调整行为 >>>
-    def __task(self, fulladd: bool = False, allseason: bool = False, is_onlyonce_run: bool = False, onlyonce_mode: str = 'rss'):
+    def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
+        
+        # 将 self._overwrite 传递给 __touch_strm_file
         overwrite_mode = self._overwrite 
 
-        # 如果是“立即运行一次”的调用，根据 onlyonce_mode 覆盖 fulladd 和 allseason
-        if is_onlyonce_run:
-            logger.info(f"执行“立即运行一次”任务，模式：{onlyonce_mode}")
-            if onlyonce_mode == 'allseason':
-                allseason = True
-                fulladd = False # 确保只有一个模式激活
-            elif onlyonce_mode == 'fulladd':
-                fulladd = True
-                allseason = False # 确保只有一个模式激活
-            else: # 默认为 'rss'
-                fulladd = False
-                allseason = False
-        else:
-            logger.info("执行定时任务。") # 区分定时任务和立即运行任务
-
-        # 以下逻辑保持不变，它会使用上面确定好的 fulladd 和 allseason 值
         if allseason:
             logger.info("开始任务：为所有历史季度和'ANi'目录创建strm文件。")
             file_list = self.get_all_season_list()
@@ -282,7 +272,7 @@ class ANiStrm100(_PluginBase):
                     if self.__touch_strm_file(file_name=rss_info['title'], 
                                               file_url=rss_info['link'], 
                                               season=rss_info['season'], 
-                                              sub_paths=rss_info['path_parts'], 
+                                              sub_paths=rss_info['path_parts'],
                                               overwrite=overwrite_mode):
                         cnt += 1
         
@@ -307,21 +297,8 @@ class ANiStrm100(_PluginBase):
                         'content': [
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次'}}]},
-                            # 移除原有的 fulladd 和 allseason 开关，因为它们现在由 onlyonce_mode 或 cron 控制
-                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
-                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [ # 新增立即运行一次的模式选择
-                                {'component': 'VSelect', 
-                                 'props': {
-                                     'model': 'onlyonce_mode', 
-                                     'label': '立即运行一次模式', 
-                                     'items': [
-                                         {'text': 'RSS更新', 'value': 'rss'},
-                                         {'text': '创建当季所有番剧strm', 'value': 'fulladd'},
-                                         {'text': '创建历史所有季度番剧strm', 'value': 'allseason'}
-                                     ]
-                                 }}
-                            ]}
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '补全历史所有番剧'}}]}
                         ]
                     },
                     {
@@ -334,7 +311,7 @@ class ANiStrm100(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VSwitch', 'props': {'model': 'overwrite', 'label': '强制覆盖已存在的Strm文件'}}]}
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VSwitch', 'props': {'model': 'overwrite', 'label': '强制覆盖已存在的Strm文件'}}]} # 新增覆盖开关
                         ]
                     }
                 ]
@@ -342,12 +319,11 @@ class ANiStrm100(_PluginBase):
         ], {
             "enabled": False,
             "onlyonce": False,
-            "fulladd": False, # 默认值，但现在主要由 cron 或 onlyonce_mode 控制
-            "allseason": False, # 默认值，但现在主要由 cron 或 onlyonce_mode 控制
+            "fulladd": False,
+            "allseason": False,
             "storageplace": "/downloads/strm",
             "cron": "*/20 22,23,0,1 * * *",
-            "overwrite": False, 
-            "onlyonce_mode": "rss", # 新增默认值
+            "overwrite": False, # 默认不强制覆盖
         }
 
     def __update_config(self):
@@ -358,8 +334,7 @@ class ANiStrm100(_PluginBase):
             "fulladd": self._fulladd,
             "allseason": self._allseason,
             "storageplace": self._storageplace,
-            "overwrite": self._overwrite, 
-            "onlyonce_mode": self._onlyonce_mode, # 保存新配置
+            "overwrite": self._overwrite, # 保存覆盖选项
         })
 
     def get_page(self) -> List[dict]:
@@ -390,28 +365,21 @@ if __name__ == "__main__":
     anistrm100.settings.USER_AGENT = "Mozilla/5.0"
     anistrm100.settings.PROXY = None
     
-    print("--- 测试 get_all_season_list ---")
-    all_files = anistrm100.get_all_season_list() 
+    print("--- 测试 get_all_season_list (起始年份2019，包含 'ANi' 目录) ---")
+    all_files = anistrm100.get_all_season_list() # 使用默认起始年份
     print(f"--- 总共找到 {len(all_files)} 个文件 ---")
 
-    for i, (season, path_parts, file_name) in enumerate(all_files[:5]): 
-        print(f"[{i+1}] 原始信息：根目录: {season}, 子路径: {'/'.join(path_parts) if path_parts else '无'}, 文件: {file_name}")
-    if len(all_files) > 5:
+    # 打印一些结果作为示例
+    for season, path_parts, file_name in all_files[:3]:
+        print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
+    if len(all_files) > 3:
         print("...")
-        for i, (season, path_parts, file_name) in enumerate(all_files[-5:], start=len(all_files)-4): 
-             print(f"[{i}] 原始信息：根目录: {season}, 子路径: {'/'.join(path_parts) if path_parts else '无'}, 文件: {file_name}")
+        for season, path_parts, file_name in all_files[-3:]:
+             print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
 
-    print("\n--- 模拟任务运行 (allseason模式，通过 onlyonce_mode 触发) ---")
-    anistrm100._overwrite = True 
-    anistrm100._onlyonce_mode = "allseason" # 模拟用户选择“历史全量”
-    anistrm100.__task(is_onlyonce_run=True, onlyonce_mode=anistrm100._onlyonce_mode)
-    
-    print("\n--- 模拟任务运行 (RSS模式，通过 onlyonce_mode 触发) ---")
-    anistrm100._overwrite = False 
-    anistrm100._onlyonce_mode = "rss" # 模拟用户选择“RSS更新”
-    anistrm100.__task(is_onlyonce_run=True, onlyonce_mode=anistrm100._onlyonce_mode)
-
-    print("\n--- 模拟定时任务运行 (假设配置为 fulladd=False, allseason=False) ---")
-    anistrm100._fulladd = False
-    anistrm100._allseason = False
-    anistrm100.__task(fulladd=anistrm100._fulladd, allseason=anistrm100._allseason, is_onlyonce_run=False)
+    print("\n--- 模拟任务运行 (allseason模式) ---")
+    anistrm100._overwrite = True # 模拟强制覆盖
+    anistrm100.__task(allseason=True)
+    print("\n--- 模拟任务运行 (RSS模式，不覆盖) ---")
+    anistrm100._overwrite = False # 模拟不覆盖
+    anistrm100.__task(allseason=False, fulladd=False)
