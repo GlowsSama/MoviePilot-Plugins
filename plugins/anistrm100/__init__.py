@@ -1,9 +1,11 @@
+# 123
 import os
 import time
 from datetime import datetime, timedelta
-import re 
-import shutil # 导入 shutil 模块
-import tempfile # 导入 tempfile 模块
+import re
+import shutil
+import tempfile
+from urllib.parse import urlparse, unquote # <<< 新增：导入URL解析库
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -45,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.8.3" # 版本更新，以体现新功能
+    plugin_version = "2.8.4" # <<< 修改：版本更新
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -78,8 +80,8 @@ class ANiStrm100(_PluginBase):
             if self._enabled and self._cron:
                 try:
                     self._scheduler.add_job(func=self.__task,
-                                             trigger=CronTrigger.from_crontab(self._cron),
-                                             name="ANiStrm100文件创建")
+                                            trigger=CronTrigger.from_crontab(self._cron),
+                                            name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
                 except Exception as err:
                     logger.error(f"定时任务配置错误：{str(err)}")
@@ -87,10 +89,10 @@ class ANiStrm100(_PluginBase):
             if self._onlyonce:
                 logger.info(f"ANi-Strm服务启动，立即运行一次")
                 self._scheduler.add_job(func=self.__task,
-                                         args=[self._fulladd, self._allseason],
-                                         trigger='date',
-                                         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                                         name="ANiStrm100文件创建")
+                                        args=[self._fulladd, self._allseason],
+                                        trigger='date',
+                                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                        name="ANiStrm100文件创建")
                 self._onlyonce = False
                 self._fulladd = False
                 self._allseason = False
@@ -101,7 +103,8 @@ class ANiStrm100(_PluginBase):
                 self._scheduler.start()
 
     def __get_ani_season(self, idx_month: int = None) -> str:
-        current_date = datetime.now()
+        # 使用当前时间来确定季度
+        current_date = datetime.now(pytz.timezone(settings.TZ))
         current_year = current_date.year
         current_month = idx_month if idx_month else current_date.month
         
@@ -123,12 +126,11 @@ class ANiStrm100(_PluginBase):
         
         logger.debug(f"正在遍历: {url}")
         rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
-        # 增强健壮性：检查 rep 是否有效，以及是否有 .json() 方法
         if rep and hasattr(rep, 'json'):
             items = rep.json().get('files', [])
         else:
             logger.warn(f"无法获取有效的响应或响应无json方法，URL: {url}")
-            items = [] # 返回空列表以避免后续错误
+            items = []
 
         base_folder = path_parts[0]
         sub_path_list = path_parts[1:]
@@ -149,34 +151,57 @@ class ANiStrm100(_PluginBase):
         logger.info(f"正在获取当前季度的文件列表: {season}")
         return self.__traverse_directory([season])
 
+    # <<< 修改：重写此函数以正确解析RSS内容 >>>
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
-        # 增强健壮性：检查 ret 是否有效，以及是否有 .text 属性
-        if ret and hasattr(ret, 'text'):
-            dom_tree = xml.dom.minidom.parseString(ret.text)
-            items = dom_tree.documentElement.getElementsByTagName("item")
-            result = []
-            for item in items:
-                title = DomUtils.tag_value(item, "title", default="")
-                link = DomUtils.tag_value(item, "link", default="")
-                season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
-                if season_match:
-                    full_path = link.split(season_match.group(0))[-1]
-                    path_parts = full_path.split('/')
-                    file_name_from_link = path_parts.pop()
-                    if title in file_name_from_link:
-                         result.append({
-                            'season': season_match.group(1),
-                            'path_parts': path_parts,
-                            'title': title,
-                            'link': link.replace("resources.ani.rip", "ani.v300.eu.org")
-                        })
-            return result
-        else:
+        
+        if not (ret and hasattr(ret, 'text')):
             logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}")
-            return [] # 返回空列表以避免后续错误
+            return []
+
+        dom_tree = xml.dom.minidom.parseString(ret.text)
+        items = dom_tree.documentElement.getElementsByTagName("item")
+        result = []
+        for item in items:
+            title = DomUtils.tag_value(item, "title", default="").strip()
+            link = DomUtils.tag_value(item, "link", default="").strip()
+
+            if not title or not link:
+                continue
+
+            try:
+                # 1. 使用 urllib 解析和解码 URL
+                parsed_url = urlparse(link)
+                # 对路径进行URL解码（例如把%20变回空格）
+                decoded_path = unquote(parsed_url.path)
+                
+                # 2. 分割路径组件
+                # .strip('/') 移除首尾的斜杠，然后按'/'分割
+                path_components = decoded_path.strip('/').split('/')
+                
+                # 3. 分配信息
+                if len(path_components) >= 2:
+                    # 第一个组件是季度或'ANi'
+                    season = path_components[0]
+                    # 中间的所有组件都是子目录
+                    sub_paths = path_components[1:-1]
+                    
+                    result.append({
+                        'season': season,
+                        'path_parts': sub_paths,
+                        'title': title, # 直接使用<title>作为权威的文件名
+                        'link': link # 保留原始链接
+                    })
+                else:
+                    logger.warn(f"无法从链接解析出有效路径: {link}")
+                    
+            except Exception as e:
+                logger.error(f"解析RSS item失败: title={title}, link={link}, error={e}")
+
+        return result
+
 
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
@@ -204,47 +229,53 @@ class ANiStrm100(_PluginBase):
             
         return all_files
     
-    # <<< 修改：新增 overwrite 参数，并根据其决定是否跳过文件存在检查 >>>
+    # 注意：此函数逻辑在上一版已修改，不再包含子目录名合并逻辑，而是直接创建文件
     def __touch_strm_file(self, file_name: str, season: str, sub_paths: List[str] = None, file_url: str = None, overwrite: bool = False) -> bool:
         sub_paths = sub_paths or []
         
+        # 按照上一轮的修改，本地文件名需要包含子目录
+        target_file_name_final = file_name
+        if sub_paths:
+            prefix = " - ".join(sub_paths)
+            target_file_name_final = f"{prefix} - {file_name}"
+
+        # 最终strm文件的完整路径
         target_dir_path = os.path.join(self._storageplace, season)
         os.makedirs(target_dir_path, exist_ok=True)
-
-        target_file_name = f'{file_name}.strm'
-        target_file_path = os.path.join(target_dir_path, target_file_name)
+        target_file_path = os.path.join(target_dir_path, f"{target_file_name_final}.strm")
         
-        # 检查最终文件是否已存在，如果不是强制覆盖模式，则跳过
         if not overwrite and os.path.exists(target_file_path):
-            logger.debug(f'{target_file_name} 文件已存在于最终目录，跳过创建。')
+            logger.debug(f'文件已存在于最终目录，跳过创建: {target_file_path}')
             return False
 
         if file_url:
             src_url = file_url
         else:
+            # 远程URL需要包含原始的子目录结构
             remote_path = "/".join([season] + sub_paths + [file_name])
             src_url = f'https://ani.v300.eu.org/{remote_path}?d=true'
 
         try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_file_path = os.path.join(temp_dir, target_file_name)
-                with open(temp_file_path, 'w', encoding='utf-8') as file:
-                    file.write(src_url)
-                logger.debug(f'成功在临时目录创建 .strm 文件: {temp_file_path}')
-                
-                # shutil.move 会自动处理目标文件已存在时的覆盖（如果是文件）
-                shutil.move(temp_file_path, target_file_path)
-                logger.info(f'成功将文件从临时目录移动到: {target_file_path}') # 修改为info级别，更明确地表示成功
+            # 使用临时文件确保写入的原子性
+            with tempfile.NamedTemporaryFile('w', encoding='utf-8', delete=False, dir=self._storageplace) as temp_f:
+                temp_file_path = temp_f.name
+                temp_f.write(src_url)
+            
+            # 移动临时文件到最终位置，shutil.move可以原子性地覆盖
+            shutil.move(temp_file_path, target_file_path)
+            logger.info(f'成功创建/覆盖文件: {target_file_path}')
 
             return True
         except Exception as e:
-            logger.error(f'创建或移动 .strm 文件 {target_file_name} 失败: {e}')
+            logger.error(f'创建或移动 .strm 文件 {target_file_name_final} 失败: {e}')
+            # 如果临时文件创建失败，temp_file_path可能不存在
+            if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                os.remove(temp_file_path) # 清理垃圾
             return False
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
         
-        # 将 self._overwrite 传递给 __touch_strm_file
         overwrite_mode = self._overwrite 
 
         if allseason:
@@ -276,7 +307,8 @@ class ANiStrm100(_PluginBase):
                                               overwrite=overwrite_mode):
                         cnt += 1
         
-        logger.info(f'任务完成。共创建了 {cnt} 个新的 .strm 文件。')
+        logger.info(f'任务完成。共创建/更新了 {cnt} 个 .strm 文件。')
+
 
     def get_state(self) -> bool:
         return self._enabled
@@ -361,25 +393,11 @@ if __name__ == "__main__":
     
     anistrm100 = ANiStrm100()
     anistrm100._storageplace = "./strm_test_cn"
-    anistrm100.settings = lambda: None
-    anistrm100.settings.USER_AGENT = "Mozilla/5.0"
-    anistrm100.settings.PROXY = None
-    
-    print("--- 测试 get_all_season_list (起始年份2019，包含 'ANi' 目录) ---")
-    all_files = anistrm100.get_all_season_list() # 使用默认起始年份
-    print(f"--- 总共找到 {len(all_files)} 个文件 ---")
+    # Mock settings
+    settings.USER_AGENT = "Mozilla/5.0"
+    settings.PROXY = None
+    settings.TZ = 'Asia/Shanghai'
 
-    # 打印一些结果作为示例
-    for season, path_parts, file_name in all_files[:3]:
-        print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
-    if len(all_files) > 3:
-        print("...")
-        for season, path_parts, file_name in all_files[-3:]:
-             print(f"根目录: {season}, 子路径: {'/'.join(path_parts)}, 文件: {file_name}")
-
-    print("\n--- 模拟任务运行 (allseason模式) ---")
+    print("\n--- 模拟任务运行 (RSS模式) ---")
     anistrm100._overwrite = True # 模拟强制覆盖
-    anistrm100.__task(allseason=True)
-    print("\n--- 模拟任务运行 (RSS模式，不覆盖) ---")
-    anistrm100._overwrite = False # 模拟不覆盖
     anistrm100.__task(allseason=False, fulladd=False)
