@@ -193,7 +193,7 @@ class ANiStrm100(_PluginBase):
             logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。") 
             return [] 
 
-    def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
+    def get_all_season_list(self, start_year: int = 2024) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
         all_files = []
         for year in range(start_year, now.year + 1):
