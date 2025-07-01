@@ -1,9 +1,11 @@
-import osMore actions
+# 123
+import os
 import time
 from datetime import datetime, timedelta
-import re 
-import shutil # 导入 shutil 模块
-import tempfile # 导入 tempfile 模块
+import re
+import shutil
+import tempfile
+from urllib.parse import urlparse, unquote
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -45,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.9.4" # 版本更新，以体现新功能
+    plugin_version = "2.9.5" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
