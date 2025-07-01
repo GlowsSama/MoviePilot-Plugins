@@ -19,7 +19,7 @@ from app.utils.dom import DomUtils
 
 # 重试装饰器
 def retry(ExceptionToCheck: Any,
-          tries: int = 3, delay: int = 5, backoff: int = 1, logger: Any = None, ret: Any = None): # 延迟从 3 增加到 5
+          tries: int = 3, delay: int = 5, backoff: int = 1, logger: Any = None, ret: Any = None): 
     def deco_retry(f):
         def f_retry(*args, **kwargs):
             mtries, mdelay = tries, delay
@@ -27,7 +27,7 @@ def retry(ExceptionToCheck: Any,
                 try:
                     return f(*args, **kwargs)
                 except ExceptionToCheck as e:
-                    msg = f"发生错误，将在 {mdries} 次重试中的第 {tries - mtries + 1} 次重试，等待 {mdelay} 秒... 错误详情: {e}"
+                    msg = f"发生错误，将在 {tries - mtries + 1}/{tries} 次重试中，等待 {mdelay} 秒... 错误详情: {e}" # 优化日志
                     if logger:
                         logger.warn(msg)
                     else:
@@ -36,7 +36,7 @@ def retry(ExceptionToCheck: Any,
                     mtries -= 1
                     mdelay *= backoff
             if logger:
-                logger.error('多次重试后仍然失败。请检查网络连接、代理设置或目标服务是否可用。') # 更改为 error 级别
+                logger.error('多次重试后仍然失败。请检查网络连接、代理设置或目标服务是否可用。') 
             return ret
         return f_retry
     return deco_retry
@@ -45,7 +45,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "2.9.2" # 版本更新
+    plugin_version = "3.0.1" # 版本更新，重大功能调整
     plugin_author = "GlowsSama & Gemini"
     author_url = "https://github.com/honue"
     plugin_config_prefix = "anistrm100_"
@@ -59,6 +59,7 @@ class ANiStrm100(_PluginBase):
     _allseason = False
     _storageplace = None
     _overwrite = False 
+    _onlyonce_mode = "rss" # 新增：立即运行一次的模式，默认从RSS获取
 
     _scheduler: Optional[BackgroundScheduler] = None
 
@@ -72,12 +73,15 @@ class ANiStrm100(_PluginBase):
             self._allseason = config.get("allseason")
             self._storageplace = config.get("storageplace")
             self._overwrite = config.get("overwrite", False) 
+            self._onlyonce_mode = config.get("onlyonce_mode", "rss") # 读取新配置
         
         if self._enabled or self._onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
             if self._enabled and self._cron:
                 try:
+                    # Cron 任务直接使用持久化配置的 _fulladd 和 _allseason
                     self._scheduler.add_job(func=self.__task,
+                                             args=[self._fulladd, self._allseason, False, "rss"], # fulladd, allseason, is_onlyonce_run, onlyonce_mode (for cron, onlyonce_mode is irrelevant)
                                              trigger=CronTrigger.from_crontab(self._cron),
                                              name="ANiStrm100文件创建")
                     logger.info(f'ANi-Strm定时任务创建成功：{self._cron}')
@@ -85,17 +89,18 @@ class ANiStrm100(_PluginBase):
                     logger.error(f"定时任务配置错误：{str(err)}")
             
             if self._onlyonce:
-                logger.info(f"ANi-Strm服务启动，立即运行一次")
+                logger.info(f"ANi-Strm服务启动，立即运行一次，模式：{self._onlyonce_mode}")
+                # 立即运行一次的任务，根据 _onlyonce_mode 传递参数
+                # fulladd 和 allseason 设为 False，由 __task 内部根据 onlyonce_mode 决定
                 self._scheduler.add_job(func=self.__task,
-                                         args=[self._fulladd, self._allseason],
+                                         args=[False, False, True, self._onlyonce_mode], 
                                          trigger='date',
                                          run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                          name="ANiStrm100文件创建")
-                self._onlyonce = False
-                self._fulladd = False
-                self._allseason = False
+                # 立即运行一次后，将 onlyonce 标志重置为 False，避免重复触发
+                self._onlyonce = False 
             
-            self.__update_config()
+            self.__update_config() # 保存最新的配置状态，包括重置后的 _onlyonce
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
@@ -115,7 +120,7 @@ class ANiStrm100(_PluginBase):
     def __is_valid_file(self, name: str) -> bool:
         return 'ANi' in name
 
-    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) # 延迟增加
+    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) 
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
         all_files = []
         current_path_str = "/".join(path_parts)
@@ -143,10 +148,10 @@ class ANiStrm100(_PluginBase):
         
         return all_files
 
-    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) # 延迟增加
+    @retry(Exception, tries=3, delay=5, logger=logger, ret=[]) 
     def get_latest_list(self) -> List:
         addr = 'https://api.ani.rip/ani-download.xml'
-        logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}") # 新增日志
+        logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}") 
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
         if ret and hasattr(ret, 'text'):
             dom_tree = xml.dom.minidom.parseString(ret.text)
@@ -167,13 +172,13 @@ class ANiStrm100(_PluginBase):
                             'title': title, 
                             'link': link.replace("resources.ani.rip", "openani.an-i.workers.dev")
                         })
-            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。") # 新增日志
+            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。") 
             return result
         else:
-            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。") # 优化日志
+            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。") 
             return [] 
 
-    def get_all_season_list(self, start_year: int = 2024) -> List[Tuple[str, List[str], str]]:
+    def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
         all_files = []
         for year in range(start_year, now.year + 1):
@@ -231,11 +236,27 @@ class ANiStrm100(_PluginBase):
             logger.error(f'创建或移动 .strm 文件 {target_file_name} 失败: {e}')
             return False
 
-    def __task(self, fulladd: bool = False, allseason: bool = False):
+    # <<< 核心修改：__task 函数现在可以根据 is_onlyonce_run 和 onlyonce_mode 调整行为 >>>
+    def __task(self, fulladd: bool = False, allseason: bool = False, is_onlyonce_run: bool = False, onlyonce_mode: str = 'rss'):
         cnt = 0
-        
         overwrite_mode = self._overwrite 
 
+        # 如果是“立即运行一次”的调用，根据 onlyonce_mode 覆盖 fulladd 和 allseason
+        if is_onlyonce_run:
+            logger.info(f"执行“立即运行一次”任务，模式：{onlyonce_mode}")
+            if onlyonce_mode == 'allseason':
+                allseason = True
+                fulladd = False # 确保只有一个模式激活
+            elif onlyonce_mode == 'fulladd':
+                fulladd = True
+                allseason = False # 确保只有一个模式激活
+            else: # 默认为 'rss'
+                fulladd = False
+                allseason = False
+        else:
+            logger.info("执行定时任务。") # 区分定时任务和立即运行任务
+
+        # 以下逻辑保持不变，它会使用上面确定好的 fulladd 和 allseason 值
         if allseason:
             logger.info("开始任务：为所有历史季度和'ANi'目录创建strm文件。")
             file_list = self.get_all_season_list()
@@ -286,8 +307,21 @@ class ANiStrm100(_PluginBase):
                         'content': [
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用插件'}}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'onlyonce', 'label': '立即运行一次'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
+                            # 移除原有的 fulladd 和 allseason 开关，因为它们现在由 onlyonce_mode 或 cron 控制
+                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'fulladd', 'label': '创建当季所有番剧strm'}}]},
+                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VSwitch', 'props': {'model': 'allseason', 'label': '创建历史所有季度番剧strm'}}]}
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [ # 新增立即运行一次的模式选择
+                                {'component': 'VSelect', 
+                                 'props': {
+                                     'model': 'onlyonce_mode', 
+                                     'label': '立即运行一次模式', 
+                                     'items': [
+                                         {'text': 'RSS更新', 'value': 'rss'},
+                                         {'text': '创建当季所有番剧strm', 'value': 'fulladd'},
+                                         {'text': '创建历史所有季度番剧strm', 'value': 'allseason'}
+                                     ]
+                                 }}
+                            ]}
                         ]
                     },
                     {
@@ -308,11 +342,12 @@ class ANiStrm100(_PluginBase):
         ], {
             "enabled": False,
             "onlyonce": False,
-            "fulladd": False,
-            "allseason": False,
+            "fulladd": False, # 默认值，但现在主要由 cron 或 onlyonce_mode 控制
+            "allseason": False, # 默认值，但现在主要由 cron 或 onlyonce_mode 控制
             "storageplace": "/downloads/strm",
             "cron": "*/20 22,23,0,1 * * *",
             "overwrite": False, 
+            "onlyonce_mode": "rss", # 新增默认值
         }
 
     def __update_config(self):
@@ -324,6 +359,7 @@ class ANiStrm100(_PluginBase):
             "allseason": self._allseason,
             "storageplace": self._storageplace,
             "overwrite": self._overwrite, 
+            "onlyonce_mode": self._onlyonce_mode, # 保存新配置
         })
 
     def get_page(self) -> List[dict]:
@@ -365,10 +401,17 @@ if __name__ == "__main__":
         for i, (season, path_parts, file_name) in enumerate(all_files[-5:], start=len(all_files)-4): 
              print(f"[{i}] 原始信息：根目录: {season}, 子路径: {'/'.join(path_parts) if path_parts else '无'}, 文件: {file_name}")
 
-    print("\n--- 模拟任务运行 (allseason模式，扁平化结构) ---")
+    print("\n--- 模拟任务运行 (allseason模式，通过 onlyonce_mode 触发) ---")
     anistrm100._overwrite = True 
-    anistrm100.__task(allseason=True)
+    anistrm100._onlyonce_mode = "allseason" # 模拟用户选择“历史全量”
+    anistrm100.__task(is_onlyonce_run=True, onlyonce_mode=anistrm100._onlyonce_mode)
     
-    print("\n--- 模拟任务运行 (RSS模式，扁平化结构) ---")
+    print("\n--- 模拟任务运行 (RSS模式，通过 onlyonce_mode 触发) ---")
     anistrm100._overwrite = False 
-    anistrm100.__task(allseason=False, fulladd=False)
+    anistrm100._onlyonce_mode = "rss" # 模拟用户选择“RSS更新”
+    anistrm100.__task(is_onlyonce_run=True, onlyonce_mode=anistrm100._onlyonce_mode)
+
+    print("\n--- 模拟定时任务运行 (假设配置为 fulladd=False, allseason=False) ---")
+    anistrm100._fulladd = False
+    anistrm100._allseason = False
+    anistrm100.__task(fulladd=anistrm100._fulladd, allseason=anistrm100._allseason, is_onlyonce_run=False)
