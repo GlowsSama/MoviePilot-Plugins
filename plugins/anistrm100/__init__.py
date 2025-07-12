@@ -161,7 +161,7 @@ class ANiStrm100(_PluginBase):
             items = dom_tree.documentElement.getElementsByTagName("item")
             result = []
             for item in items:
-                title = DomUtils.tag_value(item, "title", default="")
+                title = DomUtils.tag_value(item, "title", default="").strip()
                 link = DomUtils.tag_value(item, "link", default="")
 
                 # 确保 link 是有效的 URL
@@ -169,45 +169,32 @@ class ANiStrm100(_PluginBase):
                     logger.warn(f"RSS 项目链接无效，跳过: {link}")
                     continue
 
-                season_match = re.search(r'/(ani|(\d{4}-\d{1,2}))/', link) # 匹配 'ani' 或 'YYYY-M/MM'
+                # 从URL中提取季度信息（如2025-7）
+                season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
                 if season_match:
-                    # 提取并清理 title，作为本地 .strm 文件的文件名
-                    # 去掉CDATA标签并去除首尾空白
-                    clean_title = title.strip().replace('<![CDATA[', '').replace(']]>', '').strip()
+                    season = season_match.group(1)
                     
-                    # 只有当清理后的title包含 "ANi" 时才处理
-                    if not self.__is_valid_file(clean_title):
-                        logger.debug(f"RSS 项目标题不包含 'ANi'，跳过: {clean_title}")
-                        continue
-
-                    # 从link中提取域名和基础路径 (例如: https://ani.v300.eu.org/)
-                    parsed_link_url = urllib.parse.urlparse(link)
-                    base_domain_path = f"{parsed_link_url.scheme}://{parsed_link_url.netloc}/"
-
-                    # 提取季度目录 (例如: 2025-7/) 或 'ANi/'
-                    # season_match.group(1) 可能是 'ani' 或 '2025-7'
-                    season_dir = season_match.group(1) + '/'
-
-                    # 对 title 进行 URL 编码，以用于拼接 URL
-                    # 注意：quote 会编码 /，所以这里使用 quote 而不是 quote_plus
-                    encoded_title = urllib.parse.quote(clean_title, safe='') 
-
-                    # 构建最终的 .strm 文件内容 URL
-                    final_strm_url = f"{base_domain_path}{season_dir}{encoded_title}?d=true"
+                    # 直接从<title>获取文件名（去除CDATA标记和多余空格）
+                    file_name = title.replace('[CDATA[', '').replace(']]', '').strip()
                     
-                    # 确定用于本地目录的 season 名称
-                    # 如果是 'ani' 目录，我们也用 'ANi' 作为本地目录名
-                    # 否则使用提取到的 'YYYY-M/MM'
-                    strm_season_folder = season_match.group(1) if season_match.group(1) != 'ani' else 'ANi'
-
+                    # 确保文件名以.mp4结尾
+                    if not file_name.endswith('.mp4'):
+                        file_name += '.mp4'
+                    
+                    # 构建新的URL：域名 + 季度 + 文件名
+                    parsed_url = urlparse(link)
+                    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}/{season}/"
+                    encoded_file_name = urllib.parse.quote(file_name)
+                    new_link = f"{base_url}{encoded_file_name}?d=true"
+                    
                     result.append({
-                        'season': strm_season_folder, # 用于本地目录的季度名
-                        'path_parts': [], # RSS 文件通常不需要 sub_paths，保留字段
-                        'title': clean_title, # 使用清理后的 title 作为 .strm 文件的名称
-                        'link': final_strm_url # 使用处理后的链接作为 .strm 内容
+                        'season': season,
+                        'path_parts': [],
+                        'title': file_name,
+                        'link': new_link
                     })
                 else:
-                    logger.debug(f"RSS 项目链接未找到季度信息或 'ANi' 目录信息，跳过: {link}")
+                    logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
             return result
         else:
