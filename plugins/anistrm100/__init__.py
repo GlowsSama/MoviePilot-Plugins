@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.1.7" # 版本更新，以体现新功能
+    plugin_version = "3.1.8" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -151,45 +151,60 @@ class ANiStrm100(_PluginBase):
         logger.info(f"正在获取当前季度的文件列表: {season}")
         return self.__traverse_directory([season])
 
-    @retry(Exception, tries=3, logger=logger, ret=[])
-    def get_latest_list(self) -> List:
-        # 使用官方代理源，也可替换为 https://api.ani.rip/ani-download.xml?limit=50 等
-        addr = 'https://aniapi.v300.eu.org/ani-download.xml'
-        logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
-        ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
-        if not ret or not hasattr(ret, 'text'):
-            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
+@retry(Exception, tries=3, logger=logger, ret=[])
+def get_latest_list(self) -> List:
+    addr = 'https://aniapi.v300.eu.org/ani-download.xml'
+    logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
+    ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
+
+    if ret and hasattr(ret, 'text'):
+        try:
+            dom_tree = xml.dom.minidom.parseString(ret.text)
+            items = dom_tree.documentElement.getElementsByTagName("item")
+            result = []
+
+            for item in items:
+                title = DomUtils.tag_value(item, "title", default="").strip()
+                link = DomUtils.tag_value(item, "link", default="").strip()
+
+                if not link.startswith(('http://', 'https://')):
+                    logger.warn(f"RSS 项目链接无效，跳过: {link}")
+                    continue
+
+                season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
+                if not season_match:
+                    logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
+                    continue
+
+                # 解析文件名：还原真实后缀名
+                parsed = urllib.parse.urlparse(link)
+                name = os.path.basename(parsed.path)
+                qs = urllib.parse.parse_qs(parsed.query).get('d', [''])[0]
+                if qs and not name.endswith(f'.{qs}'):
+                    name = f"{name}.{qs}"
+                decoded_name = urllib.parse.unquote(name)
+
+                if title in decoded_name:
+                    result.append({
+                        'season': season_match.group(1),
+                        'path_parts': [],
+                        'title': title,
+                        'link': link
+                    })
+                else:
+                    logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', 文件名: '{decoded_name}'")
+
+            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
+            return result
+
+        except Exception as e:
+            logger.error(f"解析 RSS 内容失败: {e}")
             return []
 
-        dom_tree = xml.dom.minidom.parseString(ret.text)
-        items = dom_tree.documentElement.getElementsByTagName("item")
-        result = []
+    else:
+        logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
+        return []
 
-        for item in items:
-            title = DomUtils.tag_value(item, "title", default="").strip()
-            link = DomUtils.tag_value(item, "link", default="").strip()
-
-            # 跳过无效链接
-            if not link.startswith(('http://', 'https://')):
-                logger.warn(f"RSS 项目链接无效，跳过: {link}")
-                continue
-
-            # 提取季度信息
-            season_match = re.search(r'/([0-9]{4}-[0-9]{1,2})/', link)
-            if not season_match:
-                logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
-                continue
-
-            # 直接收集所有条目，无需二次文件名匹配
-            result.append({
-                'season': season_match.group(1),
-                'path_parts': [],
-                'title': title,
-                'link': link
-            })
-
-        logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
-        return result
 
 
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
