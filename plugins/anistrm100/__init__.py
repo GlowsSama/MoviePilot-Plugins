@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.2.1" # 版本更新，以体现新功能
+    plugin_version = "3.2.2" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -166,7 +166,7 @@ class ANiStrm100(_PluginBase):
                 title = DomUtils.tag_value(item, "title", default="")
                 link = DomUtils.tag_value(item, "link", default="")
 
-                # 确保 link 是有效的 URL
+                # 确保 link 是有效 URL
                 if not link.startswith(('http://', 'https://')):
                     logger.warn(f"RSS 项目链接无效，跳过: {link}")
                     continue
@@ -176,25 +176,28 @@ class ANiStrm100(_PluginBase):
                     logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
                     continue
 
-                # ==== 👇 处理文件名与 query 参数补后缀逻辑 👇 ====
+                # URL 处理
                 parsed = urllib.parse.urlparse(link)
-                name = os.path.basename(parsed.path)  # /…/X -> X
-                qs = urllib.parse.parse_qs(parsed.query).get('d', [''])[0]  # 'true' 或 'mp4'
+                name = os.path.basename(parsed.path)  # 提取 URL 路径最后部分
+                qs = urllib.parse.parse_qs(parsed.query).get('d', [''])[0]  # 提取 ?d=xxx 参数
 
-                if qs and not name.endswith(f'.{qs}') and qs not in ['true', '']:
-                    name = f"{name}.{qs}"  # 补成 [ANi] XXX - 01.mp4 等
+                # 如果参数存在且不是 'true'，且结尾没有 .xxx 后缀，则补上
+                if qs and qs != 'true' and not name.endswith(f'.{qs}'):
+                    fixed_path = parsed.path + f".{qs}"
+                    link = urllib.parse.urlunparse(parsed._replace(path=fixed_path, query=""))  # 更新 link
 
+                # 解码文件名
                 decoded_name = urllib.parse.unquote(name)
 
-                # ==== 👇 检查 title 是否匹配 👇 ====
+                # 判断标题是否包含在文件名中（为避免误匹配，必须严格匹配）
                 if title in decoded_name:
                     result.append({
-                        'season': season_match.group(1),
+                        'season': season_match.group(1),  # 例如 '2025-7'
                         'path_parts': [],
-                        'title': title,
-                        'link': link
+                        'title': decoded_name,             # 解码后的文件名作为 .strm 文件名
+                        'link': link                       # 修复后的 URL 作为内容
                     })
-                else:
+               else:
                     logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', Link Filename: '{decoded_name}'")
 
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
@@ -202,6 +205,7 @@ class ANiStrm100(_PluginBase):
         else:
             logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
             return []
+
 
 
 
