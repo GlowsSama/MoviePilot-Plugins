@@ -125,77 +125,54 @@ class ANiStrm100(_PluginBase):
     def __is_valid_file(self, name: str) -> bool:
         return 'ANi' in name
 
-    @retry(Exception, tries=3, logger=logger, ret=[])
-    def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
-        all_files = []
-        current_path_str = "/".join(path_parts)
-        url = f'https://ani.v300.eu.org/{current_path_str}/'
-
-        logger.debug(f"正在遍历: {url}")
-        rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
-        items = rep.json().get('files', []) if rep and hasattr(rep, 'json') else []
-
-        base_folder = path_parts[0]
-        sub_path_list = path_parts[1:]
-
-        for item in items:
-            item_name = item.get('name')
-            if not item_name:
-                continue
-            if self.__is_valid_file(item_name):
-                all_files.append((base_folder, sub_path_list, item_name))
-            elif '.' not in item_name:
-                all_files.extend(self.__traverse_directory(path_parts + [item_name]))
-
-        return all_files
-
-    def get_current_season_list(self) -> List[Tuple[str, List[str], str]]:
-        season = self.__get_ani_season()
-        logger.info(f"正在获取当前季度的文件列表: {season}")
-        return self.__traverse_directory([season])
-
+  # <<< 修改：重写此函数以解决RSS解析问题 >>>
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
-
+        
         if not (ret and hasattr(ret, 'text')):
-            logger.warn(f"无法获取有效的RSS响应，URL: {addr}")
+            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
             return []
 
         dom_tree = xml.dom.minidom.parseString(ret.text)
         items = dom_tree.documentElement.getElementsByTagName("item")
         result = []
-
         for item in items:
             title = DomUtils.tag_value(item, "title", default="").strip()
             link = DomUtils.tag_value(item, "link", default="").strip()
+
             if not title or not link or not link.startswith(('http://', 'https://')):
                 continue
 
+            # 1. 修正URL：将错误的 ?d=mp4 替换为正确的 ?d=true
             if link.endswith('?d=mp4'):
                 link = link.removesuffix('?d=mp4') + '?d=true'
                 logger.debug(f"修正了错误的URL后缀: {link}")
 
+            # 2. 从修正后的链接中解析信息
             try:
                 parsed_url = urlparse(link)
                 decoded_path = unquote(parsed_url.path)
                 path_components = decoded_path.strip('/').split('/')
-
+                
+                # 3. 删除不健壮的文件名验证，直接信任RSS内容
                 if len(path_components) >= 2:
                     season = path_components[0]
                     sub_paths = path_components[1:-1]
+                    
                     result.append({
                         'season': season,
                         'path_parts': sub_paths,
-                        'title': title,
-                        'link': link
+                        'title': title, # 直接使用 <title> 作为权威文件名
+                        'link': link    # 使用修正后的 <link>
                     })
                 else:
                     logger.warn(f"RSS项目链接无法解析出有效路径，跳过: {link}")
+                    
             except Exception as e:
-                logger.error(f"解析RSS item时发生错误: title={title}, link={link}, error={e}")
+                logger.error(f"解析RSS item时发生未知错误: title={title}, link={link}, error={e}")
 
         logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
         return result
