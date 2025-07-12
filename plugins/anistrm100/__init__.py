@@ -151,7 +151,7 @@ class ANiStrm100(_PluginBase):
         logger.info(f"正在获取当前季度的文件列表: {season}")
         return self.__traverse_directory([season])
 
-@retry(Exception, tries=3, logger=logger, ret=[])
+    @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
