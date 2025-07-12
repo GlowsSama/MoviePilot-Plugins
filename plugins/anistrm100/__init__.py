@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.1.8" # 版本更新，以体现新功能
+    plugin_version = "3.1.9" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -151,59 +151,59 @@ class ANiStrm100(_PluginBase):
         logger.info(f"正在获取当前季度的文件列表: {season}")
         return self.__traverse_directory([season])
 
-@retry(Exception, tries=3, logger=logger, ret=[])
-def get_latest_list(self) -> List:
-    addr = 'https://aniapi.v300.eu.org/ani-download.xml'
-    logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
-    ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
+    @retry(Exception, tries=3, logger=logger, ret=[])
+    def get_latest_list(self) -> List:
+        addr = 'https://aniapi.v300.eu.org/ani-download.xml'
+        logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
+        ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
 
-    if ret and hasattr(ret, 'text'):
-        try:
-            dom_tree = xml.dom.minidom.parseString(ret.text)
-            items = dom_tree.documentElement.getElementsByTagName("item")
-            result = []
+        if ret and hasattr(ret, 'text'):
+            try:
+                dom_tree = xml.dom.minidom.parseString(ret.text)
+                items = dom_tree.documentElement.getElementsByTagName("item")
+                result = []
 
-            for item in items:
-                title = DomUtils.tag_value(item, "title", default="").strip()
-                link = DomUtils.tag_value(item, "link", default="").strip()
+                for item in items:
+                    title = DomUtils.tag_value(item, "title", default="").strip()
+                    link = DomUtils.tag_value(item, "link", default="").strip()
 
-                if not link.startswith(('http://', 'https://')):
-                    logger.warn(f"RSS 项目链接无效，跳过: {link}")
-                    continue
+                    if not link.startswith(('http://', 'https://')):
+                        logger.warn(f"RSS 项目链接无效，跳过: {link}")
+                        continue
 
-                season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
-                if not season_match:
-                    logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
-                    continue
+                    season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
+                    if not season_match:
+                        logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
+                        continue
 
-                # 解析文件名：还原真实后缀名
-                parsed = urllib.parse.urlparse(link)
-                name = os.path.basename(parsed.path)
-                qs = urllib.parse.parse_qs(parsed.query).get('d', [''])[0]
-                if qs and not name.endswith(f'.{qs}'):
-                    name = f"{name}.{qs}"
-                decoded_name = urllib.parse.unquote(name)
+                    # 解析文件名：还原真实后缀名
+                    parsed = urllib.parse.urlparse(link)
+                    name = os.path.basename(parsed.path)
+                    qs = urllib.parse.parse_qs(parsed.query).get('d', [''])[0]
+                    if qs and not name.endswith(f'.{qs}'):
+                        name = f"{name}.{qs}"
+                    decoded_name = urllib.parse.unquote(name)
 
-                if title in decoded_name:
-                    result.append({
-                        'season': season_match.group(1),
-                        'path_parts': [],
-                        'title': title,
-                        'link': link
-                    })
-                else:
-                    logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', 文件名: '{decoded_name}'")
+                    if title in decoded_name:
+                        result.append({
+                            'season': season_match.group(1),
+                            'path_parts': [],
+                            'title': title,
+                            'link': link
+                        })
+                    else:
+                        logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', 文件名: '{decoded_name}'")
 
-            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
-            return result
+                logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
+                return result
 
-        except Exception as e:
-            logger.error(f"解析 RSS 内容失败: {e}")
+            except Exception as e:
+                logger.error(f"解析 RSS 内容失败: {e}")
+                return []
+
+        else:
+            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
             return []
-
-    else:
-        logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
-        return []
 
 
 
