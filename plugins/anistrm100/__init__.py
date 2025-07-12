@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.1.5" # 版本更新，以体现新功能
+    plugin_version = "3.1.6" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -171,23 +171,31 @@ class ANiStrm100(_PluginBase):
 
                 season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
                 if season_match:
-                    # 提取文件名部分，并进行 URL 解码
-                    # link 示例: https://ani.v300.eu.org/2025-4/%5BANi%5D%20Summer%20Pockets%20-%2013%20%5B1080P%5D%5BBaha%5D%5BWEB-DL%5D%5BAAC%20AVC%5D%5BCHT%5D.mp4?d=true
-                    # 找到最后一个 '/' 后的文件名，并去除可能的 '?d=true'
+                    # 提取并清理 title，作为本地 .strm 文件的文件名
+                    # 去掉CDATA标签并去除首尾空白
+                    clean_title = title.strip().replace('<![CDATA[', '').replace(']]>', '').strip()
+                    
+                    # 构造 .strm 文件中使用的最终 URL
+                    # 首先解析原始链接，获取不包含查询参数的基础路径
                     parsed_url = urllib.parse.urlparse(link)
-                    file_name_from_link_encoded = os.path.basename(parsed_url.path) # 获取 URL 路径的最后部分
-                    file_name_from_link_decoded = urllib.parse.unquote(file_name_from_link_encoded) # URL 解码
-
-                    # 检查 title 是否包含在解码后的文件名中
-                    if title in file_name_from_link_decoded: # 使用解码后的文件名进行比较
+                    # 重新构建URL，确保查询参数为 ?d=true
+                    # 如果路径本身就包含查询参数（不常见但防止万一），只取路径部分
+                    base_url_path = parsed_url.scheme + "://" + parsed_url.netloc + parsed_url.path
+                    
+                    # 确保链接以 .mp4 结尾，并且查询参数是 ?d=true
+                    # 移除原有的查询参数，然后添加 ?d=true
+                    final_strm_url = f"{base_url_path.split('?')[0]}?d=true" # 移除路径中可能存在的问号，然后添加 ?d=true
+                    
+                    # 只有当清理后的title包含 "ANi" 时才处理
+                    if self.__is_valid_file(clean_title):
                         result.append({
-                            'season': season_match.group(1), # 例如 '2025-4'
-                            'path_parts': [], # RSS 文件不再需要 sub_paths 来构建本地目录，但保留字段
-                            'title': title, # 这是原始文件名，例如 '[ANi] Summer Pockets - 13 [1080P]....mp4'
-                            'link': link # 直接使用原始 link 作为 .strm 内容
+                            'season': season_match.group(1), # 例如 '2025-7'
+                            'path_parts': [], # RSS 文件通常不需要 sub_paths，保留字段
+                            'title': clean_title, # 使用清理后的 title 作为 .strm 文件的名称
+                            'link': final_strm_url # 使用处理后的链接作为 .strm 内容
                         })
                     else:
-                        logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', Link Filename: '{file_name_from_link_decoded}'")
+                        logger.debug(f"RSS 项目标题不包含 'ANi'，跳过: {clean_title}")
                 else:
                     logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
