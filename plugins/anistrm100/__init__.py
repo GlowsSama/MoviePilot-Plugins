@@ -125,7 +125,7 @@ class ANiStrm100(_PluginBase):
     def __is_valid_file(self, name: str) -> bool:
         return 'ANi' in name
 
-  # <<< 修改：重写此函数以解决RSS解析问题 >>>
+    # <<< 修改：重写此函数以解决RSS解析问题 >>>
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
@@ -140,10 +140,10 @@ class ANiStrm100(_PluginBase):
         items = dom_tree.documentElement.getElementsByTagName("item")
         result = []
         for item in items:
-            title = DomUtils.tag_value(item, "title", default="").strip()
+            # title = DomUtils.tag_value(item, "title", default="").strip() # title不再是可靠的文件名来源
             link = DomUtils.tag_value(item, "link", default="").strip()
 
-            if not title or not link or not link.startswith(('http://', 'https://')):
+            if not link or not link.startswith(('http://', 'https://')):
                 continue
 
             # 1. 修正URL：将错误的 ?d=mp4 替换为正确的 ?d=true
@@ -157,26 +157,30 @@ class ANiStrm100(_PluginBase):
                 decoded_path = unquote(parsed_url.path)
                 path_components = decoded_path.strip('/').split('/')
                 
-                # 3. 删除不健壮的文件名验证，直接信任RSS内容
                 if len(path_components) >= 2:
                     season = path_components[0]
                     sub_paths = path_components[1:-1]
                     
+                    # 关键修改：直接从链接路径的最后一部分提取完整、准确的文件名
+                    authoritative_filename = path_components[-1]
+                    
+                    if not authoritative_filename: # 避免空文件名
+                        continue
+
                     result.append({
                         'season': season,
                         'path_parts': sub_paths,
-                        'title': title, # 直接使用 <title> 作为权威文件名
+                        'title': authoritative_filename, # 使用从<link>中提取的权威文件名
                         'link': link    # 使用修正后的 <link>
                     })
                 else:
                     logger.warn(f"RSS项目链接无法解析出有效路径，跳过: {link}")
                     
             except Exception as e:
-                logger.error(f"解析RSS item时发生未知错误: title={title}, link={link}, error={e}")
+                logger.error(f"解析RSS item时发生未知错误: link={link}, error={e}")
 
         logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
         return result
-
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
         all_files = []
