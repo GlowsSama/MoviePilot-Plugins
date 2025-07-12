@@ -158,7 +158,7 @@ class ANiStrm100(_PluginBase):
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
         
         if not (ret and hasattr(ret, 'text')):
-            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
+            logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。")
             return []
 
         dom_tree = xml.dom.minidom.parseString(ret.text)
@@ -170,18 +170,14 @@ class ANiStrm100(_PluginBase):
             if not link or not link.startswith(('http://', 'https://')):
                 continue
 
-            # --- URL修正逻辑区 ---
-            # 规则1：修正错误的 ?d=mp4 后缀
             if link.endswith('?d=mp4'):
                 link = link.removesuffix('?d=mp4') + '?d=true'
                 logger.debug(f"修正了错误的URL后缀: {link}")
 
-            # 规则2 (新增)：为缺少 .mp4 扩展名的链接补全
             if link.endswith('?d=true') and not link.endswith('.mp4?d=true'):
                 link = link.removesuffix('?d=true') + '.mp4?d=true'
                 logger.debug(f"为URL添加了缺失的 .mp4 扩展名: {link}")
             
-            # --- URL解析逻辑区 ---
             try:
                 parsed_url = urlparse(link)
                 decoded_path = unquote(parsed_url.path)
