@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.2.2" # <<< 修改：版本更新
+    plugin_version = "3.2.3" # <<< 修改：版本更新
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -282,7 +282,7 @@ class ANiStrm100(_PluginBase):
 
     def __task(self, fulladd: bool = False, allseason: bool = False):
         cnt = 0
-        overwrite_mode = self._overwrite
+        overwrite_mode = self._overwrite # 这正确反映了插件的覆盖设置
 
         if allseason or fulladd:
             if allseason:
@@ -298,7 +298,8 @@ class ANiStrm100(_PluginBase):
                     if self.__touch_strm_file(file_name, season, path_parts, overwrite=overwrite_mode):
                         cnt += 1
         else:
-            logger.info("开始任务：从RSS获取最新文件 (模式: 增量更新)")
+            # 📢 这里的日志也更新了，显示当前的覆盖模式
+            logger.info(f"开始任务：从RSS获取最新文件 (模式: 增量更新, 强制覆盖: {overwrite_mode})")
             rss_info_list = self.get_latest_list()
             for rss_info in rss_info_list:
                 if self.__is_valid_file(rss_info['title']):
@@ -308,7 +309,7 @@ class ANiStrm100(_PluginBase):
                         file_url=rss_info['link'],
                         season=rss_info['season'],
                         sub_paths=rss_info['path_parts'],
-                        overwrite=False
+                        overwrite=overwrite_mode # ✅ 已将此参数更改为 overwrite_mode
                     ):
                         cnt += 1
 
