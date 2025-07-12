@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.2.0" # 版本更新，以体现新功能
+    plugin_version = "3.2.1" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -163,47 +163,39 @@ class ANiStrm100(_PluginBase):
             for item in items:
                 title = DomUtils.tag_value(item, "title", default="").strip()
                 link = DomUtils.tag_value(item, "link", default="")
-
-                # 确保 link 是有效的 URL
-                if not link.startswith(('http://', 'https://')):
-                    logger.warn(f"RSS 项目链接无效，跳过: {link}")
-                    continue
-
+                
+                # 移除title中的多余空格和.mp4后缀
+                clean_title = re.sub(r'\s+', ' ', title)  # 合并多余空格
+                clean_title = re.sub(r'\.mp4$', '', clean_title)  # 移除.mp4后缀
+                
                 # 修复链接格式问题
                 if "?d=mp4" in link:
                     link = link.replace("?d=mp4", ".mp4?d=true")
-                elif link.endswith("?d=true"):
-                    pass  # 已经是正确格式
-                else:
-                    # 确保链接以.mp4?d=true结尾
+                elif not link.endswith("?d=true"):
                     link = re.sub(r'(\?d=true)?$', '.mp4?d=true', link)
-
+                
                 # 完整URL解码
                 decoded_link = unquote(link)
                 
-                season_match = re.search(r'/(\d{4}-\d{1,2})/', decoded_link)
-                if season_match:
-                    # 提取文件名部分
-                    parsed_url = urlparse(decoded_link)
-                    
-                    # 获取文件名（去除参数）
-                    file_name_from_link = os.path.basename(parsed_url.path)
-                    
-                    # 移除可能的.mp4后缀（如果存在）
-                    clean_title = re.sub(r'\.mp4$', '', title)
-                    
-                    # 检查title是否在解码后的文件名中
-                    if clean_title in file_name_from_link:
-                        result.append({
-                            'season': season_match.group(1),
-                            'path_parts': [],
-                            'title': title,
-                            'link': decoded_link
-                        })
-                    else:
-                        logger.debug(f"RSS 项目名称匹配检查: Title='{clean_title}', LinkFile='{file_name_from_link}'")
+                # 提取文件名部分（不含参数）
+                parsed_url = urlparse(decoded_link)
+                file_name_from_link = os.path.basename(parsed_url.path)
+                
+                # 移除文件名的.mp4后缀
+                clean_file_name = re.sub(r'\.mp4$', '', file_name_from_link)
+                
+                # 更宽松的匹配：检查title是否在解码后的文件名中（忽略大小写和空格）
+                # 使用相似度匹配代替精确匹配
+                if clean_title.lower() in clean_file_name.lower():
+                    result.append({
+                        'season': re.search(r'/(\d{4}-\d{1,2})/', decoded_link).group(1),
+                        'path_parts': [],
+                        'title': title,
+                        'link': decoded_link
+                    })
                 else:
-                    logger.debug(f"RSS 项目链接未找到季度信息: {link}")
+                    # 记录不匹配的条目以便调试
+                    logger.debug(f"标题不匹配: '{clean_title}' vs '{clean_file_name}'")
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
             return result
         else:
