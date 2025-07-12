@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.1.5" # 版本更新，以体现新功能
+    plugin_version = "3.2.0" # 版本更新，以体现新功能
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -156,45 +156,58 @@ class ANiStrm100(_PluginBase):
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
-        if ret and hasattr(ret, 'text'):
-            dom_tree = xml.dom.minidom.parseString(ret.text)
-            items = dom_tree.documentElement.getElementsByTagName("item")
-            result = []
-            for item in items:
-                title = DomUtils.tag_value(item, "title", default="")
-                link = DomUtils.tag_value(item, "link", default="")
-
-                # 确保 link 是有效的 URL
-                if not link.startswith(('http://', 'https://')):
-                    logger.warn(f"RSS 项目链接无效，跳过: {link}")
-                    continue
-
-                season_match = re.search(r'/(\d{4}-\d{1,2})/', link)
-                if season_match:
-                    # 提取文件名部分，并进行 URL 解码
-                    # link 示例: https://ani.v300.eu.org/2025-4/%5BANi%5D%20Summer%20Pockets%20-%2013%20%5B1080P%5D%5BBaha%5D%5BWEB-DL%5D%5BAAC%20AVC%5D%5BCHT%5D.mp4?d=true
-                    # 找到最后一个 '/' 后的文件名，并去除可能的 '?d=true'
-                    parsed_url = urllib.parse.urlparse(link)
-                    file_name_from_link_encoded = os.path.basename(parsed_url.path) # 获取 URL 路径的最后部分
-                    file_name_from_link_decoded = urllib.parse.unquote(file_name_from_link_encoded) # URL 解码
-
-                    # 检查 title 是否包含在解码后的文件名中
-                    if title in file_name_from_link_decoded: # 使用解码后的文件名进行比较
-                        result.append({
-                            'season': season_match.group(1), # 例如 '2025-4'
-                            'path_parts': [], # RSS 文件不再需要 sub_paths 来构建本地目录，但保留字段
-                            'title': title, # 这是原始文件名，例如 '[ANi] Summer Pockets - 13 [1080P]....mp4'
-                            'link': link # 直接使用原始 link 作为 .strm 内容
-                        })
-                    else:
-                        logger.debug(f"RSS 项目名称不匹配，跳过。Title: '{title}', Link Filename: '{file_name_from_link_decoded}'")
-                else:
-                    logger.debug(f"RSS 项目链接未找到季度信息，跳过: {link}")
-            logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
-            return result
-        else:
+        
+        if not (ret and hasattr(ret, 'text')):
             logger.warn(f"无法获取有效的RSS响应或响应无text属性，URL: {addr}。这可能是网络问题或RSS源暂时不可用。")
             return []
+
+        dom_tree = xml.dom.minidom.parseString(ret.text)
+        items = dom_tree.documentElement.getElementsByTagName("item")
+        result = []
+        for item in items:
+            link = DomUtils.tag_value(item, "link", default="").strip()
+
+            if not link or not link.startswith(('http://', 'https://')):
+                continue
+
+            # --- URL修正逻辑区 ---
+            # 规则1：修正错误的 ?d=mp4 后缀
+            if link.endswith('?d=mp4'):
+                link = link.removesuffix('?d=mp4') + '?d=true'
+                logger.debug(f"修正了错误的URL后缀: {link}")
+
+            # 规则2 (新增)：为缺少 .mp4 扩展名的链接补全
+            if link.endswith('?d=true') and not link.endswith('.mp4?d=true'):
+                link = link.removesuffix('?d=true') + '.mp4?d=true'
+                logger.debug(f"为URL添加了缺失的 .mp4 扩展名: {link}")
+            
+            # --- URL解析逻辑区 ---
+            try:
+                parsed_url = urlparse(link)
+                decoded_path = unquote(parsed_url.path)
+                path_components = decoded_path.strip('/').split('/')
+                
+                if len(path_components) >= 2:
+                    season = path_components[0]
+                    sub_paths = path_components[1:-1]
+                    authoritative_filename = path_components[-1]
+                    
+                    if not authoritative_filename: continue
+
+                    result.append({
+                        'season': season,
+                        'path_parts': sub_paths,
+                        'title': authoritative_filename,
+                        'link': link
+                    })
+                else:
+                    logger.warn(f"RSS项目链接无法解析出有效路径，跳过: {link}")
+                    
+            except Exception as e:
+                logger.error(f"解析RSS item时发生未知错误: link={link}, error={e}")
+
+        logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
+        return result
 
     def get_all_season_list(self, start_year: int = 2019) -> List[Tuple[str, List[str], str]]:
         now = datetime.now()
