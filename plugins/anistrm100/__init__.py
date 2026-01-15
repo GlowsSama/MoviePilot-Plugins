@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 from urllib.parse import urlparse, unquote
+import requests  # 引入 requests 以便精确控制超时
 import urllib.parse 
 
 import pytz
@@ -38,7 +39,7 @@ def retry(ExceptionToCheck: Any,
                     mtries -= 1
                     mdelay *= backoff
             if logger:
-                logger.warn('多次重试后仍然失败。请检查文件夹是否存在或网络问题。')
+                logger.warn('多次重试后仍然失败。')
             return ret
         return f_retry
     return deco_retry
@@ -47,7 +48,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.3.1" # 版本更新：回归ani域名，启用HTML解析
+    plugin_version = "3.3.2" # 修复版：防止CF卡死
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -117,58 +118,57 @@ class ANiStrm100(_PluginBase):
     def __is_valid_file(self, name: str) -> bool:
         return 'ANi' in name
 
-    @retry(Exception, tries=3, logger=logger, ret=[])
+    # 这里的 retry 仅捕获一般网络波动，对于 CF 屏蔽直接跳过
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
         all_files = []
         current_path_str = "/".join(path_parts)
         
-        # 1. 回归使用 ani.v300.eu.org
         url = f'https://ani.v300.eu.org/{current_path_str}/'
 
-        logger.info(f"正在遍历目录 (GET): {url}")
-        
-        # 2. 这里的目录列表通常需要 GET 请求，而非 POST
-        rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(url=url)
+        logger.info(f"正在尝试遍历目录: {url}")
         
         items = []
-        
-        if rep:
-            # 3. 混合解析模式：先尝试JSON，失败则尝试HTML正则
-            try:
-                # 尝试当作 API 解析 (兼容旧接口)
-                json_data = rep.json()
-                if isinstance(json_data, dict):
-                    items = json_data.get('files', [])
-                elif isinstance(json_data, list):
-                    items = json_data
-            except Exception:
-                # JSON 解析失败，说明返回的是 HTML 页面 (Expected value error 的原因)
-                # 使用正则提取 <a href="..."> 链接
-                html_text = rep.text
-                
-                # Nginx/Apache 目录列表的 href 提取
-                links = re.findall(r'<a href="([^"]+)"', html_text)
-                
-                for link in links:
-                    link = unquote(link)
-                    # 排除上级目录链接、根目录、参数链接
-                    if link in ['../', './', '/'] or link.startswith('?'):
-                        continue
-                        
-                    # 移除末尾的 /
-                    clean_name = link.rstrip('/')
-                    
-                    # 构造伪造的 item 对象
-                    items.append({'name': clean_name})
-                    
-                if not items:
-                    logger.warn(f"HTML解析未找到文件，请检查页面结构。URL: {url}")
-                    # 调试用：打印一小段 HTML
-                    logger.debug(f"HTML片段: {html_text[:300]}")
+        try:
+            # -------------------------------------------------------------
+            # [关键修改] 使用 requests 直接发起请求，设置 timeout=10 防止卡死
+            # -------------------------------------------------------------
+            headers = {
+                'User-Agent': settings.USER_AGENT or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            # verify=False 避免部分 SSL 问题，timeout=10 强制超时
+            resp = requests.get(url, headers=headers, timeout=10, verify=False)
+            
+            if resp.status_code == 200:
+                # 尝试 JSON
+                try:
+                    json_data = resp.json()
+                    if isinstance(json_data, dict):
+                        items = json_data.get('files', [])
+                    elif isinstance(json_data, list):
+                        items = json_data
+                except:
+                    # JSON 失败，切 HTML
+                    html_text = resp.text
+                    links = re.findall(r'<a href="([^"]+)"', html_text)
+                    for link in links:
+                        link = unquote(link)
+                        if link in ['../', './', '/'] or link.startswith('?'):
+                            continue
+                        clean_name = link.rstrip('/')
+                        items.append({'name': clean_name})
+            elif resp.status_code in [403, 503]:
+                logger.error(f"遍历目录失败 (Code {resp.status_code})：网站开启了Cloudflare防护，无法直接爬取目录。已跳过此功能。")
+                return [] # 直接返回空，不再重试
+            else:
+                logger.warn(f"访问目录失败，状态码: {resp.status_code}")
+                return []
 
-        else:
-            logger.warn(f"无法获取响应，URL: {url}")
-            items = []
+        except requests.exceptions.Timeout:
+            logger.error(f"遍历目录超时 (Timeout)：连接 {url} 超过10秒无响应，可能是网站防护拦截。已跳过。")
+            return []
+        except Exception as e:
+            logger.error(f"遍历目录发生未知错误: {e}")
+            return []
 
         base_folder = path_parts[0]
         sub_path_list = path_parts[1:]
@@ -180,7 +180,7 @@ class ANiStrm100(_PluginBase):
             if self.__is_valid_file(item_name):
                 all_files.append((base_folder, sub_path_list, item_name))
             elif '.' not in item_name and 'fail2ban' not in item_name:
-                # 递归遍历子目录
+                # 递归
                 all_files.extend(self.__traverse_directory(path_parts + [item_name]))
 
         return all_files
@@ -192,10 +192,16 @@ class ANiStrm100(_PluginBase):
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
-        # RSS 源地址保持不变
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
-        ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
+        
+        # 同样给 RSS 加个保险，虽然 RSS 一般没问题
+        try:
+            ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
+        except Exception as e:
+            logger.error(f"RSS 请求失败: {e}")
+            return []
+
         if ret and hasattr(ret, 'text'):
             dom_tree = xml.dom.minidom.parseString(ret.text)
             items = dom_tree.documentElement.getElementsByTagName("item")
@@ -214,8 +220,7 @@ class ANiStrm100(_PluginBase):
                 
                 decoded_link = unquote(link)
                 
-                # 强制修正为 ani.v300.eu.org
-                # 无论 RSS 返回 proi 还是 resources.ani.rip，都强转
+                # [关键] 强制重定向逻辑
                 path_match = re.search(r'/(\d{4}-\d{1,2}/.*)', decoded_link)
                 if path_match:
                     decoded_link = f"https://ani.v300.eu.org/{path_match.group(1)}"
@@ -282,8 +287,7 @@ class ANiStrm100(_PluginBase):
         if file_url:
             src_url = file_url
         else:
-            # 目录遍历获取的文件，手动拼接 URL
-            # 确保这里也不要出现 resources.ani.rip 或 proi
+            # 目录遍历得到的，强制拼接为 ani.v300
             remote_path = "/".join([season] + sub_paths + [file_name])
             src_url = f'https://ani.v300.eu.org/{remote_path}?d=true'
 
@@ -309,19 +313,25 @@ class ANiStrm100(_PluginBase):
         if allseason:
             logger.info("开始任务：为所有历史季度和'ANi'目录创建strm文件。")
             file_list = self.get_all_season_list()
-            logger.info(f"处理所有历史内容，共找到 {len(file_list)} 个文件。")
-            for season, path_parts, file_name in file_list:
-                if self.__is_valid_file(file_name):
-                    if self.__touch_strm_file(file_name=file_name, season=season, sub_paths=path_parts, overwrite=overwrite_mode):
-                        cnt += 1
+            if not file_list:
+                logger.warn("未获取到历史文件列表，可能是因为网站开启了防护导致目录遍历失败。")
+            else:
+                logger.info(f"处理所有历史内容，共找到 {len(file_list)} 个文件。")
+                for season, path_parts, file_name in file_list:
+                    if self.__is_valid_file(file_name):
+                        if self.__touch_strm_file(file_name=file_name, season=season, sub_paths=path_parts, overwrite=overwrite_mode):
+                            cnt += 1
         elif fulladd:
             logger.info("开始任务：为当前季度的所有文件创建strm文件。")
             file_list = self.get_current_season_list()
-            logger.info(f'处理当前季度，共找到 {len(file_list)} 个文件。')
-            for season, path_parts, file_name in file_list:
-                if self.__is_valid_file(file_name):
-                    if self.__touch_strm_file(file_name=file_name, season=season, sub_paths=path_parts, overwrite=overwrite_mode):
-                        cnt += 1
+            if not file_list:
+                logger.warn("未获取到当前季度文件列表，可能是因为网站开启了防护导致目录遍历失败。")
+            else:
+                logger.info(f'处理当前季度，共找到 {len(file_list)} 个文件。')
+                for season, path_parts, file_name in file_list:
+                    if self.__is_valid_file(file_name):
+                        if self.__touch_strm_file(file_name=file_name, season=season, sub_paths=path_parts, overwrite=overwrite_mode):
+                            cnt += 1
         else:
             logger.info("开始任务：从RSS源获取最新文件。")
             rss_info_list = self.get_latest_list()
@@ -426,6 +436,6 @@ if __name__ == "__main__":
         TZ = "Asia/Shanghai" 
     anistrm100.settings = MockSettings()
 
-    print("\n--- 模拟任务运行 (全季模式, 触发 HTML 目录遍历) ---")
+    print("\n--- 模拟任务运行 (全季模式, 测试超时逻辑) ---")
     anistrm100._overwrite = False 
     anistrm100.__task(allseason=False, fulladd=True)
