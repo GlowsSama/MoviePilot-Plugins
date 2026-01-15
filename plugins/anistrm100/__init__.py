@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.2.2" # 版本微调
+    plugin_version = "3.2.3" # 版本号更新
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -177,16 +177,15 @@ class ANiStrm100(_PluginBase):
                 decoded_link = unquote(link)
                 
                 # ----------------------------------------------------------------------
-                # [新增] 强制URL重定向逻辑
-                # 无论 RSS 返回的是 proi.v300... 还是 resources.ani.rip
-                # 我们通过正则找到 /YYYY-MM/ 的位置，截取后面的部分，拼接到 ani.v300.eu.org
+                # [修复] 强制URL重定向逻辑
                 # ----------------------------------------------------------------------
+                # 查找 /YYYY-MM/ 的模式
                 path_match = re.search(r'/(\d{4}-\d{1,2}/.*)', decoded_link)
                 if path_match:
-                    # path_match.group(1) 将包含 /2025-10/xxx.mp4?d=true
-                    # 这样就过滤掉了前面的 proi... 或 resources.ani.rip 
-                    decoded_link = f"https://ani.v300.eu.org{path_match.group(1)}"
-                    logger.debug(f"链接重定向修正: {decoded_link}")
+                    # 这里的 path_match.group(1) 是 "2025-10/xxx.mp4?d=true"
+                    # 之前的版本少加了一个斜杠，导致变成 ani.v300.eu.org2025 (错误)
+                    # 现在修复为 ani.v300.eu.org/2025 (正确)
+                    decoded_link = f"https://ani.v300.eu.org/{path_match.group(1)}"
                 # ----------------------------------------------------------------------
 
                 # 提取文件名部分（不含参数）
@@ -196,19 +195,26 @@ class ANiStrm100(_PluginBase):
                 # 移除文件名的.mp4后缀
                 clean_file_name = re.sub(r'\.mp4$', '', file_name_from_link)
                 
-                # 更宽松的匹配：检查title是否在解码后的文件名中（忽略大小写和空格）
+                # 检查title是否在解码后的文件名中
                 if clean_title.lower() in clean_file_name.lower():
                     # 尝试提取季度信息
+                    # 这里的正则需要链接中包含 /2025-10/ 这种格式，因为上面已经修复了 decoded_link，所以这里应该能匹配到
                     season_match = re.search(r'/(\d{4}-\d{1,2})/', decoded_link)
                     if season_match:
                         result.append({
                             'season': season_match.group(1),
                             'path_parts': [],
                             'title': title,
-                            'link': decoded_link # 这里存入的已经是修正为 ani.v300 的链接了
+                            'link': decoded_link 
                         })
+                    else:
+                        # 增加 WARN 日志以便调试（如果匹配到了文件名但提取不到季度）
+                        logger.warn(f"无法提取季度信息，请检查链接格式: {decoded_link}")
                 else:
-                    logger.debug(f"标题不匹配: '{clean_title}' vs '{clean_file_name}'")
+                    # 增加 WARN 日志以便调试（如果标题匹配失败）
+                    # 正常运行时可以改回 DEBUG
+                    logger.warn(f"标题不匹配 (RSS标题 vs 链接文件名): \nTitle: '{clean_title}'\nFile : '{clean_file_name}'")
+                    
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
             return result
         else:
