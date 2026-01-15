@@ -47,7 +47,7 @@ class ANiStrm100(_PluginBase):
     plugin_name = "ANiStrm100"
     plugin_desc = "自动获取当季所有番剧，免去下载，轻松拥有一个番剧媒体库"
     plugin_icon = "https://raw.githubusercontent.com/honue/MoviePilot-Plugins/main/icons/anistrm.png"
-    plugin_version = "3.2.4" # 版本号更新
+    plugin_version = "3.3.1" # 版本更新：回归ani域名，启用HTML解析
     plugin_author = "honue,GlowsSama"
     author_url = "https://github.com/GlowsSama"
     plugin_config_prefix = "anistrm100_"
@@ -121,15 +121,54 @@ class ANiStrm100(_PluginBase):
     def __traverse_directory(self, path_parts: List[str]) -> List[Tuple[str, List[str], str]]:
         all_files = []
         current_path_str = "/".join(path_parts)
+        
+        # 1. 回归使用 ani.v300.eu.org
         url = f'https://ani.v300.eu.org/{current_path_str}/'
 
-        logger.debug(f"正在遍历: {url}")
-        rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).post(url=url)
-        if rep and hasattr(rep, 'json'):
-            items = rep.json().get('files', [])
+        logger.info(f"正在遍历目录 (GET): {url}")
+        
+        # 2. 这里的目录列表通常需要 GET 请求，而非 POST
+        rep = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(url=url)
+        
+        items = []
+        
+        if rep:
+            # 3. 混合解析模式：先尝试JSON，失败则尝试HTML正则
+            try:
+                # 尝试当作 API 解析 (兼容旧接口)
+                json_data = rep.json()
+                if isinstance(json_data, dict):
+                    items = json_data.get('files', [])
+                elif isinstance(json_data, list):
+                    items = json_data
+            except Exception:
+                # JSON 解析失败，说明返回的是 HTML 页面 (Expected value error 的原因)
+                # 使用正则提取 <a href="..."> 链接
+                html_text = rep.text
+                
+                # Nginx/Apache 目录列表的 href 提取
+                links = re.findall(r'<a href="([^"]+)"', html_text)
+                
+                for link in links:
+                    link = unquote(link)
+                    # 排除上级目录链接、根目录、参数链接
+                    if link in ['../', './', '/'] or link.startswith('?'):
+                        continue
+                        
+                    # 移除末尾的 /
+                    clean_name = link.rstrip('/')
+                    
+                    # 构造伪造的 item 对象
+                    items.append({'name': clean_name})
+                    
+                if not items:
+                    logger.warn(f"HTML解析未找到文件，请检查页面结构。URL: {url}")
+                    # 调试用：打印一小段 HTML
+                    logger.debug(f"HTML片段: {html_text[:300]}")
+
         else:
-            logger.warn(f"无法获取有效的响应或响应无json方法，URL: {url}")
-            items = [] 
+            logger.warn(f"无法获取响应，URL: {url}")
+            items = []
 
         base_folder = path_parts[0]
         sub_path_list = path_parts[1:]
@@ -140,7 +179,8 @@ class ANiStrm100(_PluginBase):
 
             if self.__is_valid_file(item_name):
                 all_files.append((base_folder, sub_path_list, item_name))
-            elif '.' not in item_name:
+            elif '.' not in item_name and 'fail2ban' not in item_name:
+                # 递归遍历子目录
                 all_files.extend(self.__traverse_directory(path_parts + [item_name]))
 
         return all_files
@@ -152,6 +192,7 @@ class ANiStrm100(_PluginBase):
 
     @retry(Exception, tries=3, logger=logger, ret=[])
     def get_latest_list(self) -> List:
+        # RSS 源地址保持不变
         addr = 'https://aniapi.v300.eu.org/ani-download.xml'
         logger.info(f"正在尝试从 RSS 源获取最新文件: {addr}")
         ret = RequestUtils(ua=settings.USER_AGENT, proxies=settings.PROXY).get_res(addr)
@@ -163,42 +204,27 @@ class ANiStrm100(_PluginBase):
                 title = DomUtils.tag_value(item, "title", default="").strip()
                 link = DomUtils.tag_value(item, "link", default="")
                 
-                # 移除title中的多余空格和.mp4后缀
-                clean_title = re.sub(r'\s+', ' ', title)  # 合并多余空格
-                clean_title = re.sub(r'\.mp4$', '', clean_title)  # 移除.mp4后缀
+                clean_title = re.sub(r'\s+', ' ', title)
+                clean_title = re.sub(r'\.mp4$', '', clean_title)
                 
-                # 修复链接格式问题
                 if "?d=mp4" in link:
                     link = link.replace("?d=mp4", ".mp4?d=true")
                 elif not link.endswith("?d=true"):
                     link = re.sub(r'(\?d=true)?$', '.mp4?d=true', link)
                 
-                # 完整URL解码
                 decoded_link = unquote(link)
                 
-                # ----------------------------------------------------------------------
-                # [修复] 强制URL重定向逻辑
-                # ----------------------------------------------------------------------
-                # 查找 /YYYY-MM/ 的模式
+                # 强制修正为 ani.v300.eu.org
+                # 无论 RSS 返回 proi 还是 resources.ani.rip，都强转
                 path_match = re.search(r'/(\d{4}-\d{1,2}/.*)', decoded_link)
                 if path_match:
-                    # 这里的 path_match.group(1) 是 "2025-10/xxx.mp4?d=true"
-                    # 之前的版本少加了一个斜杠，导致变成 ani.v300.eu.org2025 (错误)
-                    # 现在修复为 ani.v300.eu.org/2025 (正确)
                     decoded_link = f"https://ani.v300.eu.org/{path_match.group(1)}"
-                # ----------------------------------------------------------------------
 
-                # 提取文件名部分（不含参数）
                 parsed_url = urlparse(decoded_link)
                 file_name_from_link = os.path.basename(parsed_url.path)
-                
-                # 移除文件名的.mp4后缀
                 clean_file_name = re.sub(r'\.mp4$', '', file_name_from_link)
                 
-                # 检查title是否在解码后的文件名中
                 if clean_title.lower() in clean_file_name.lower():
-                    # 尝试提取季度信息
-                    # 这里的正则需要链接中包含 /2025-10/ 这种格式，因为上面已经修复了 decoded_link，所以这里应该能匹配到
                     season_match = re.search(r'/(\d{4}-\d{1,2})/', decoded_link)
                     if season_match:
                         result.append({
@@ -207,14 +233,7 @@ class ANiStrm100(_PluginBase):
                             'title': title,
                             'link': decoded_link 
                         })
-                    else:
-                        # 增加 WARN 日志以便调试（如果匹配到了文件名但提取不到季度）
-                        logger.warn(f"无法提取季度信息，请检查链接格式: {decoded_link}")
-                else:
-                    # 增加 WARN 日志以便调试（如果标题匹配失败）
-                    # 正常运行时可以改回 DEBUG
-                    logger.warn(f"标题不匹配 (RSS标题 vs 链接文件名): \nTitle: '{clean_title}'\nFile : '{clean_file_name}'")
-                    
+            
             logger.info(f"成功从 RSS 源获取到 {len(result)} 个项目。")
             return result
         else:
@@ -263,6 +282,8 @@ class ANiStrm100(_PluginBase):
         if file_url:
             src_url = file_url
         else:
+            # 目录遍历获取的文件，手动拼接 URL
+            # 确保这里也不要出现 resources.ani.rip 或 proi
             remote_path = "/".join([season] + sub_paths + [file_name])
             src_url = f'https://ani.v300.eu.org/{remote_path}?d=true'
 
@@ -405,6 +426,6 @@ if __name__ == "__main__":
         TZ = "Asia/Shanghai" 
     anistrm100.settings = MockSettings()
 
-    print("\n--- 模拟任务运行 (RSS模式，不覆盖) ---")
+    print("\n--- 模拟任务运行 (全季模式, 触发 HTML 目录遍历) ---")
     anistrm100._overwrite = False 
-    anistrm100.__task(allseason=False, fulladd=False)
+    anistrm100.__task(allseason=False, fulladd=True)
